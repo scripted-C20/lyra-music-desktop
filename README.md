@@ -1,128 +1,30 @@
-<p align="center"><a href="https://github.com/lyswhut/lx-music-desktop"><img width="200" src="https://github.com/lyswhut/lx-music-desktop/blob/master/doc/images/icon.png" alt="lx-music logo"></a></p>
+<p align="center"><a href="https://github.com/lyswhut/lx-music-desktop"><img width="200" src="./doc/images/icon.png" alt="lx-music logo"></a></p>
 
-<h1 align="center">LX Music 桌面版</h1>
+<h1 align="center">LX Music 桌面版 UI 修改版</h1>
 
-<p align="center">
-  <a href="https://github.com/lyswhut/lx-music-desktop/releases"><img src="https://img.shields.io/github/release/lyswhut/lx-music-desktop" alt="Release version"></a>
-  <a href="https://github.com/lyswhut/lx-music-desktop/actions/workflows/release.yml"><img src="https://github.com/lyswhut/lx-music-desktop/workflows/Build/badge.svg" alt="Build status"></a>
-  <a href="https://github.com/lyswhut/lx-music-desktop/actions/workflows/beta-pack.yml"><img src="https://github.com/lyswhut/lx-music-desktop/workflows/Build%20Beta/badge.svg" alt="Build status"></a>
-  <a href="https://electronjs.org/releases/stable"><img src="https://img.shields.io/github/package-json/dependency-version/lyswhut/lx-music-desktop/dev/electron/master" alt="Electron version"></a>
-  <!-- <a href="https://github.com/lyswhut/lx-music-desktop/releases"><img src="https://img.shields.io/github/downloads/lyswhut/lx-music-desktop/latest/total" alt="Downloads"></a> -->
-  <a href="https://github.com/lyswhut/lx-music-desktop/tree/dev"><img src="https://img.shields.io/github/package-json/v/lyswhut/lx-music-desktop/dev" alt="Dev branch version"></a>
-  <!-- <a href="https://github.com/lyswhut/lx-music-desktop/blob/master/LICENSE"><img src="https://img.shields.io/github/license/lyswhut/lx-music-desktop" alt="License"></a> -->
-</p>
+<p align="center">基于 <a href="https://github.com/lyswhut/lx-music-desktop">LX Music Desktop</a> 的二次 UI 修改版本</p>
 
-<!-- [![GitHub release][1]][2]
-[![Build status][3]][4]
-[![GitHub Releases Download][5]][6]
-[![dev branch][7]][8]
-[![GitHub license][9]][10] -->
+## 源项目
 
-<!-- [1]: https://img.shields.io/github/release/lyswhut/lx-music-desktop
-[2]: https://github.com/lyswhut/lx-music-desktop/releases
-[3]: https://ci.appveyor.com/api/projects/status/flrsqd5ymp8fnte5?svg=true
-[4]: https://ci.appveyor.com/project/lyswhut/lx-music-desktop
-[5]: https://img.shields.io/github/downloads/lyswhut/lx-music-desktop/latest/total
-[5]: https://img.shields.io/github/downloads/lyswhut/lx-music-desktop/total
-[6]: https://github.com/lyswhut/lx-music-desktop/releases
-[7]: https://img.shields.io/github/package-json/v/lyswhut/lx-music-desktop/dev
-[8]: https://github.com/lyswhut/lx-music-desktop/tree/dev
-[9]: https://img.shields.io/github/license/lyswhut/lx-music-desktop
-[10]: https://github.com/lyswhut/lx-music-desktop/blob/master/LICENSE -->
+源项目：<https://github.com/lyswhut/lx-music-desktop>
 
-<p align="center">一个基于 Electron & Vue 开发的音乐软件</p>
-
-## 说明
-
-所用技术栈：
-
-- Electron 30+
-- Vue 3
-
-已支持的平台：
-
-- Linux
-- macOS
-- Windows 7 及以上
-
-*移动版项目地址：https://github.com/lyswhut/lx-music-mobile*
-
-*LX Music 项目发展调整与新项目计划：https://github.com/lyswhut/lx-music-desktop/issues/1912*
-
-软件变化请查看[更新日志](https://github.com/lyswhut/lx-music-desktop/blob/master/CHANGELOG.md)。
-
-软件下载请查看 [GitHub Releases](https://github.com/lyswhut/lx-music-desktop/releases)。
-
-使用常见问题请参阅[桌面版常见问题](https://lyswhut.github.io/lx-music-doc/desktop/faq)。
-
-目前本项目的原始发布地址只有 [**GitHub**](https://github.com/lyswhut/lx-music-desktop/releases)，其他渠道均为第三方转载发布，与本项目无关！
-
-为了提高使用门槛，本软件内的默认设置、UI 操作不以新手友好为目标，所以使用前建议先根据你的喜好浏览调整一遍软件设置，阅读一遍[音乐播放列表机制](https://lyswhut.github.io/lx-music-doc/desktop/faq/playlist)及[可用的鼠标、键盘快捷操作](https://lyswhut.github.io/lx-music-doc/desktop/faq/hotkey)。
+本仓库仅做 UI 与交互体验上的二次修改，不代表 LX Music Desktop 官方版本。
 
 ## 二次修改说明
 
-本仓库是在 LX Music 桌面版基础上的二次修改版，本段只记录本地 UI 调整与新增 UI 操作。
+- 重新优化主界面、左侧菜单、顶部窗口按钮、底部播放栏与播放详情页视觉。
+- 优化播放详情页歌词、封面、评论面板、底部控制区与窗口缩放后的居中表现。
+- 优化全屏 / 最大化 / 还原状态，以及播放详情页双击关闭、拖动窗口等操作体验。
+- 优化设置页图标、弹窗、版本信息与主题适配，减少白底突兀和图标错位。
+- 新增窗口尺寸“全屏”、详情页“更多”默认展开、一键播放当前歌单、在线 JSON 一键订阅等 UI 操作。
+- 默认隐藏软件更新入口，避免二次修改版本误触发源项目更新逻辑。
 
-- 主界面、左侧菜单、顶部窗口按钮、底部播放栏、播放详情页按更统一的网易云桌面端视觉重新收口，减少突兀留白并强化播放区层级。
-- 播放详情页优化了底部控制区、更多操作区、评论面板、歌词区域与窗口宽度变化下的视觉居中效果。
-- 左侧菜单底部新增当前本地版本显示，用于替代设置页里的更新入口露出。
-- 底部播放栏恢复当前播放信息展示，并让版本信息、播放信息在同一视觉轴线上对齐。
-- 设置页隐藏“软件更新”入口，启动后不默认弹出更新检查相关操作。
-- 设置页帮助图标、桌面歌词相关图标统一为图标库样式，并修正尺寸和对齐。
-- 用户 API 弹窗、设置弹窗等局部弹层按当前主题重新优化，不再使用突兀白底样式。
-- 播放详情页支持顶部双击关闭详情页，同时保留拖动窗口的操作体验。
-- 播放详情页“更多”操作默认展开，点击空白区域不会自动收起。
-- 窗口尺寸设置新增“全屏”操作，并与全屏 / 还原按钮状态保持联动。
-- 新增一键播放当前歌单
-- 新增在线json一键订阅
-### Scheme URL 支持
+> 在线音乐播放需要用户自行导入可用的自定义 API；本仓库不内置任何音乐 API。
 
-从 v1.17.0 起支持 Scheme URL，可以使用此功能在浏览器等场景下调用 LX Music，我们开发了一个[油猴脚本](https://github.com/lyswhut/lx-music-script#readme)配套使用。
-
-脚本安装地址：[LX Music 辅助脚本](https://greasyfork.org/zh-CN/scripts/438148)。
-
-若你想自己调用 LX Music，可以参考文档「[Scheme URL 支持](https://lyswhut.github.io/lx-music-doc/desktop/scheme-url)」部分。
-
-### 数据同步服务
-
-从 v2.2.0 起，我们发布了一个独立的[数据同步服务](https://github.com/lyswhut/lx-music-sync-server#readme)。如果你有服务器，可以将其部署到服务器上作为私人多端同步服务使用，详情看该项目说明。
-
-### 开放 API 支持
-
-从 v2.7.0 起支持开放 API 服务。启用该功能后，将会在本地启动一个 HTTP 服务，提供播放器相关的接口供第三方软件调用，详情看文档「[开放 API 服务](https://lyswhut.github.io/lx-music-doc/desktop/open-api)」部分。
-
-### 数据存储目录
-
-默认情况下，软件的数据存储在：
-
-- Linux：`$XDG_CONFIG_HOME/lx-music-desktop` 或 `~/.config/lx-music-desktop`
-- macOS：`~/Library/Application Support/lx-music-desktop`
-- Windows：`%APPDATA%/lx-music-desktop`
-
-在 Windows 平台上，若程序文件夹中存在 `portable` 文件夹，则自动使用此文件夹作为数据存储文件夹（适用于 v1.17.0 及以上版本）。
-
-## 用户界面
+## UI 展示
 
 <p><img width="100%" src="./doc/images/app.png" alt="lx-music desktop UI"></p>
 <p><img width="100%" src="./doc/images/app1.png" alt="lx-music desktop UI"></p>
-
-## 贡献代码
-
-本项目欢迎 PR，但为了 PR 能顺利合并，需要注意以下几点：
-
-- 对于添加新功能的 PR，建议在提交 PR 前先创建 Issue 进行说明，以确认该功能是否确实需要。
-- 对于修复 bug 的 PR，请提供修复前后的说明及重现方式。
-- 对于其他类型的 PR，则适当附上说明。
-
-贡献代码步骤：
-
-1. 参照[源码使用方法](https://lyswhut.github.io/lx-music-doc/desktop/use-source-code)设置开发环境；
-2. 克隆本仓库代码并切换至 `dev` 分支进行开发；
-3. 提交 PR 至 `dev` 分支。
-
-## 源码使用方法
-
-请参阅：<https://lyswhut.github.io/lx-music-doc/desktop/use-source-code>
 
 ## 项目协议
 
