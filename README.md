@@ -73,7 +73,8 @@
 - 播放详情页支持顶部双击关闭详情页，同时保留拖动窗口的操作体验。
 - 播放详情页“更多”操作默认展开，点击空白区域不会自动收起。
 - 窗口尺寸设置新增“全屏”操作，并与全屏 / 还原按钮状态保持联动。
-
+- 新增一键播放当前歌单
+- 新增在线json一键订阅
 ### Scheme URL 支持
 
 从 v1.17.0 起支持 Scheme URL，可以使用此功能在浏览器等场景下调用 LX Music，我们开发了一个[油猴脚本](https://github.com/lyswhut/lx-music-script#readme)配套使用。
@@ -103,6 +104,7 @@
 ## 用户界面
 
 <p><img width="100%" src="./doc/images/app.png" alt="lx-music desktop UI"></p>
+<p><img width="100%" src="./doc/images/app1.png" alt="lx-music desktop UI"></p>
 
 ## 贡献代码
 
