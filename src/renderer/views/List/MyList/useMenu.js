@@ -187,6 +187,7 @@ export default ({
     menuLocation,
     isShowMenu,
     showMenu,
+    hideMenu,
     menuClick,
   }
 }

@@ -51,6 +51,7 @@ export default {
       hideTimer: null,
       show: false,
       listStyles: {
+        boxSizing: 'border-box',
         transform: 'scaleY(0) translateY(0)',
       },
     }
@@ -88,7 +89,10 @@ export default {
   methods: {
     hideMenu() {
       if (!this.show) return
-      this.listStyles.transform = 'scaleY(0) translateY(0)'
+      this.listStyles = {
+        ...this.listStyles,
+        transform: 'scaleY(0) translateY(0)',
+      }
       if (this.hideTimer) clearTimeout(this.hideTimer)
       this.hideTimer = setTimeout(() => {
         this.hideTimer = null
@@ -139,9 +143,21 @@ export default {
       this.show = true
       this.$nextTick(() => {
         const domList = this.$refs.dom_list
+        const domBtn = this.$refs.dom_btn
         if (!domList) return
 
-        this.listStyles.transform = `scaleY(1) translateY(${this.handleGetOffset(domList)}px)`
+        const btnWidth = Math.round(domBtn?.getBoundingClientRect?.().width || domBtn?.offsetWidth || 0)
+        this.listStyles = {
+          boxSizing: 'border-box',
+          transform: `scaleY(1) translateY(${this.handleGetOffset(domList)}px)`,
+          ...(btnWidth > 0
+            ? {
+                width: `${btnWidth}px`,
+                minWidth: `${btnWidth}px`,
+                maxWidth: `${btnWidth}px`,
+              }
+            : {}),
+        }
 
         const activeItem = domList.children[this.activeIndex]
         if (activeItem) domList.scrollTop = activeItem.offsetTop - domList.clientHeight * 0.38
@@ -267,6 +283,7 @@ export default {
   top: calc(100% + 8px);
   left: 0;
   width: 100%;
+  box-sizing: border-box;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(248, 248, 250, 0.995));
   opacity: 0;
   transform: scaleY(0) translateY(0);

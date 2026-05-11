@@ -17,6 +17,7 @@ window.lx = {
   },
   songListInfo: {
     fromName: '',
+    currentDetailId: '',
     searchKey: '',
     searchPosition: 0,
     songlistKey: '',

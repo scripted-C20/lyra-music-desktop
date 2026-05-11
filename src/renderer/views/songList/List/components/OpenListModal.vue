@@ -132,7 +132,6 @@ const handleSubmit = () => {
     }
 
     .selection-list {
-      min-width: 156px;
       li {
         text-align: center;
         justify-content: center;

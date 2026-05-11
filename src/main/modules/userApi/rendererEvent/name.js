@@ -2,6 +2,7 @@ const names = {
   initEnv: '',
   init: '',
   request: '',
+  cancel: '',
   response: '',
   openDevTools: '',
   showUpdateAlert: '',

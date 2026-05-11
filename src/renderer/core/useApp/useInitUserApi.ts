@@ -1,6 +1,7 @@
 import { onBeforeUnmount, watch } from '@common/utils/vueTools'
 import { useI18n } from '@renderer/plugins/i18n'
 import { onUserApiStatus, getUserApiList, sendUserApiRequest as sendUserApiRequestRemote, userApiRequestCancel, onShowUserApiUpdateAlert } from '@renderer/utils/ipc'
+import { requestMsg } from '@renderer/utils/message'
 import { openUrl } from '@common/utils/electron'
 import { qualityList, userApi } from '@renderer/store'
 import { appSetting } from '@renderer/store/setting'
@@ -11,7 +12,8 @@ const sendUserApiRequest: typeof sendUserApiRequestRemote = async(data) => {
   let stop: () => void
   return new Promise<void>((resolve, reject) => {
     stop = watch(() => appSetting['common.apiSource'], () => {
-      reject(new Error('source changed'))
+      userApiRequestCancel(data.requestKey)
+      reject(new Error(requestMsg.cancelRequest))
     })
     void sendUserApiRequestRemote(data).then(resolve).catch(reject)
   }).finally(() => {
@@ -26,6 +28,15 @@ export default () => {
     // console.log({ status, message, apiInfo })
     userApi.status = status
     userApi.message = message
+    if (apiInfo?.sources) {
+      const index = userApi.list.findIndex(item => item.id === apiInfo.id)
+      if (index > -1) {
+        userApi.list.splice(index, 1, {
+          ...userApi.list[index],
+          sources: apiInfo.sources,
+        })
+      }
+    }
 
     if (!apiInfo || apiInfo.id !== appSetting['common.apiSource']) return
     if (status) {

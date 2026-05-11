@@ -7,7 +7,7 @@ import { playProgress, setNowPlayTime, setMaxplayTime } from '@renderer/store/pl
 import { musicInfo, playMusicInfo, playInfo } from '@renderer/store/player/state'
 // import { getList } from '@renderer/store/utils'
 import { appSetting } from '@renderer/store/setting'
-import { playNext } from '@renderer/core/player'
+import { playNextAfterError } from '@renderer/core/player'
 import { updateListMusics } from '@renderer/store/list/action'
 
 const delaySavePlayInfo = throttle(savePlayInfo, 2000)
@@ -24,6 +24,33 @@ export default () => {
 
   // const updateMusicInfo = useCommit('list', 'updateMusicInfo')
 
+  const createSavedPlayInfo = (time = playProgress.nowPlayTime, maxTime = playProgress.maxPlayTime): LX.Player.SavedPlayInfo | null => {
+    if (playMusicInfo.isTempPlay || !playMusicInfo.listId || playInfo.playIndex < 0) return null
+    return {
+      time: appSetting['player.isSavePlayTime'] ? time : 0,
+      maxTime,
+      listId: playMusicInfo.listId,
+      index: playInfo.playIndex,
+    }
+  }
+
+  const queueSaveCurrentPlayInfo = (time = playProgress.nowPlayTime, maxTime = playProgress.maxPlayTime) => {
+    const info = createSavedPlayInfo(time, maxTime)
+    if (!info) return
+    delaySavePlayInfo(info)
+  }
+
+  const saveCurrentPlayInfoImmediately = () => {
+    const currentTime = getCurrentTime()
+    const duration = getDuration()
+    const info = createSavedPlayInfo(
+      Number.isFinite(currentTime) ? currentTime : playProgress.nowPlayTime,
+      Number.isFinite(duration) && duration > 0 ? duration : playProgress.maxPlayTime,
+    )
+    if (!info) return
+    savePlayInfo(info)
+  }
+
   const startBuffering = () => {
     console.log('start t')
     if (mediaBuffer.timeout) return
@@ -39,7 +66,7 @@ export default () => {
         mediaBuffer.playTime = 0
         if (appSetting['player.autoSkipOnError']) {
           console.warn('buffering end')
-          void playNext(true)
+          void playNextAfterError()
         }
         return
       }
@@ -131,36 +158,15 @@ export default () => {
     setCurrentTime(restorePlayTime = playProgress.nowPlayTime)
     // setMaxplayTime(playProgress.maxPlayTime)
     handlePause()
-    if (!playMusicInfo.isTempPlay && playMusicInfo.listId) {
-      delaySavePlayInfo({
-        time: playProgress.nowPlayTime,
-        maxTime: playProgress.maxPlayTime,
-        listId: playMusicInfo.listId,
-        index: playInfo.playIndex,
-      })
-    }
+    queueSaveCurrentPlayInfo()
   }
 
   watch(() => playProgress.nowPlayTime, (newValue, oldValue) => {
     if (Math.abs(newValue - oldValue) > 2) window.app_event.activePlayProgressTransition()
-    if (appSetting['player.isSavePlayTime'] && !playMusicInfo.isTempPlay) {
-      delaySavePlayInfo({
-        time: newValue,
-        maxTime: playProgress.maxPlayTime,
-        listId: playMusicInfo.listId as string,
-        index: playInfo.playIndex,
-      })
-    }
+    if (appSetting['player.isSavePlayTime']) queueSaveCurrentPlayInfo(newValue, playProgress.maxPlayTime)
   })
   watch(() => playProgress.maxPlayTime, maxPlayTime => {
-    if (!playMusicInfo.isTempPlay) {
-      delaySavePlayInfo({
-        time: playProgress.nowPlayTime,
-        maxTime: maxPlayTime,
-        listId: playMusicInfo.listId as string,
-        index: playInfo.playIndex,
-      })
-    }
+    queueSaveCurrentPlayInfo(playProgress.nowPlayTime, maxPlayTime)
   })
 
   // window.app_event.on('play', handlePlay)
@@ -190,7 +196,11 @@ export default () => {
     }
   })
 
+  window.addEventListener('beforeunload', saveCurrentPlayInfoImmediately)
+
   onBeforeUnmount(() => {
+    saveCurrentPlayInfoImmediately()
+    window.removeEventListener('beforeunload', saveCurrentPlayInfoImmediately)
     rOnTimeupdate()
     rVisibilityChange()
     // window.app_event.off('play', handlePlay)

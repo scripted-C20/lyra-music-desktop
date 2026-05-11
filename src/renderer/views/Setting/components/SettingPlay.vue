@@ -103,7 +103,7 @@ export default {
           mediaDeviceId.value = appSetting['player.mediaDeviceId']
         }
       } else {
-        appSetting['player.mediaDeviceId'] = mediaDeviceId.value
+        saveMediaDeviceId(mediaDeviceId.value)
       }
     }
     watch(() => appSetting['player.mediaDeviceId'], val => {

@@ -5,13 +5,18 @@ import {
   saveMusicUrl,
   getMusicUrl as getStoreMusicUrl,
 } from '@renderer/utils/ipc'
+import { requestMsg } from '@renderer/utils/message'
 import {
   buildLyricInfo,
+  canUseMusicUrlCache,
   getPlayQuality,
   handleGetOnlineLyricInfo,
-  handleGetOnlineMusicUrl,
+  handleGetOnlineMusicUrlTask,
   handleGetOnlinePicUrl,
   getCachedLyricInfo,
+  isUserApiSourceSelected,
+  type CancelableTask,
+  type MusicUrlTaskOptions,
 } from './utils'
 
 /* export const setMusicUrl = ({ musicInfo, type, url }: {
@@ -38,13 +43,25 @@ export const setPic = (datas: {
  */
 
 
-export const getMusicUrl = async({ musicInfo, quality, isRefresh, allowToggleSource = true, onToggleSource = () => {} }: {
+export const getMusicUrl = async({ musicInfo, quality, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
   musicInfo: LX.Music.MusicInfoOnline
   quality?: LX.Quality
   isRefresh: boolean
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  taskOptions?: MusicUrlTaskOptions
 }): Promise<string> => {
+  return createGetMusicUrlTask({ musicInfo, quality, isRefresh, allowToggleSource, onToggleSource, taskOptions }).promise
+}
+
+export const createGetMusicUrlTask = ({ musicInfo, quality, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
+  musicInfo: LX.Music.MusicInfoOnline
+  quality?: LX.Quality
+  isRefresh: boolean
+  allowToggleSource?: boolean
+  onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  taskOptions?: MusicUrlTaskOptions
+}): CancelableTask<string> => {
   // if (!musicInfo._types[type]) {
   //   // 兼容旧版酷我源搜索列表过滤128k音质的bug
   //   if (!(musicInfo.source == 'kw' && type == '128k')) throw new Error('该歌曲没有可播放的音频')
@@ -52,14 +69,28 @@ export const getMusicUrl = async({ musicInfo, quality, isRefresh, allowToggleSou
   //   // return Promise.reject(new Error('该歌曲没有可播放的音频'))
   // }
   const targetQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
-  const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
-  if (cachedUrl && !isRefresh) return cachedUrl
+  let isCancelled = false
+  let cancelTask = () => {}
+  return {
+    cancel() {
+      isCancelled = true
+      cancelTask()
+    },
+    promise: (async() => {
+      const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
+      if (cachedUrl && canUseMusicUrlCache(isRefresh)) return cachedUrl
 
-  return handleGetOnlineMusicUrl({ musicInfo, quality, onToggleSource, isRefresh, allowToggleSource }).then(({ url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache }) => {
-    if (targetMusicInfo.id != musicInfo.id && !isFromCache) void saveMusicUrl(targetMusicInfo, targetQuality, url)
-    void saveMusicUrl(musicInfo, targetQuality, url)
-    return url
-  })
+      const task = handleGetOnlineMusicUrlTask({ musicInfo, quality, onToggleSource, isRefresh, allowToggleSource, taskOptions })
+      cancelTask = task.cancel
+      const { url, quality: resolvedQuality, musicInfo: targetMusicInfo, isFromCache } = await task.promise
+      if (isCancelled) throw new Error(requestMsg.cancelRequest)
+      if (!isUserApiSourceSelected()) {
+        if (targetMusicInfo.id != musicInfo.id && !isFromCache) void saveMusicUrl(targetMusicInfo, resolvedQuality, url)
+        void saveMusicUrl(musicInfo, resolvedQuality, url)
+      }
+      return url
+    })(),
+  }
 }
 
 export const getPicUrl = async({ musicInfo, listId, isRefresh, allowToggleSource = true, onToggleSource = () => {} }: {
@@ -70,7 +101,7 @@ export const getPicUrl = async({ musicInfo, listId, isRefresh, allowToggleSource
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
 }): Promise<string> => {
   if (musicInfo.meta.picUrl && !isRefresh) return musicInfo.meta.picUrl
-  return handleGetOnlinePicUrl({ musicInfo, onToggleSource, isRefresh, allowToggleSource }).then(({ url, musicInfo: targetMusicInfo, isFromCache }) => {
+  return handleGetOnlinePicUrl({ musicInfo, onToggleSource, isRefresh, allowToggleSource }).then(({ url }) => {
     // picRequest = null
     if (listId) {
       musicInfo.meta.picUrl = url

@@ -2,38 +2,102 @@ import { encodePath } from '@common/utils/common'
 import { updateListMusics } from '@renderer/store/list/action'
 import { saveLyric, saveMusicUrl } from '@renderer/utils/ipc'
 import { getLocalFilePath } from '@renderer/utils/music'
+import { requestMsg } from '@renderer/utils/message'
 
 import {
   buildLyricInfo,
+  type CancelableTask,
+  type MusicUrlTaskOptions,
+  createGetOtherSourceByTimeoutTask,
+  createGetOtherSourceTask,
   getCachedLyricInfo,
   getOnlineOtherSourceLyricByLocal,
   getOnlineOtherSourceLyricInfo,
-  getOnlineOtherSourceMusicUrl,
-  getOnlineOtherSourceMusicUrlByLocal,
+  getOnlineOtherSourceMusicUrlTask,
+  getOnlineOtherSourceMusicUrlByLocalTask,
   getOnlineOtherSourcePicByLocal,
   getOnlineOtherSourcePicUrl,
-  getOtherSource,
+  isUserApiSourceSelected,
 } from './utils'
 
+const noop = () => {}
 
-const getOtherSourceByLocal = async<T>(musicInfo: LX.Music.MusicInfoLocal, handler: (infos: LX.Music.MusicInfoOnline[]) => Promise<T>) => {
+const createOtherSourceFetcher = (timeout?: number) => {
+  if (typeof timeout != 'number' || timeout <= 0) return (musicInfo: LX.Music.MusicInfoLocal) => createGetOtherSourceTask(musicInfo)
+  const startTime = Date.now()
+  return (musicInfo: LX.Music.MusicInfoLocal) => {
+    const remainTimeout = timeout - (Date.now() - startTime)
+    if (remainTimeout <= 0) {
+      return {
+        promise: Promise.reject(new Error('find music timeout')),
+        cancel: noop,
+      }
+    }
+    return createGetOtherSourceByTimeoutTask(musicInfo, remainTimeout)
+  }
+}
+
+const getOtherSourceByLocal = async<T>(
+  musicInfo: LX.Music.MusicInfoLocal,
+  handler: (infos: LX.Music.MusicInfoOnline[]) => Promise<T>,
+  taskOptions?: MusicUrlTaskOptions,
+  isCancelled: () => boolean = () => false,
+  setTaskCancel: (cancel: () => void) => void = noop,
+) => {
+  const fetchOtherSource = createOtherSourceFetcher(taskOptions?.otherSourceTimeout)
+  const throwIfCancelled = () => {
+    if (isCancelled()) throw new Error(requestMsg.cancelRequest)
+  }
+  const requestOtherSource = async(searchMusicInfo: LX.Music.MusicInfoLocal) => {
+    const task = fetchOtherSource(searchMusicInfo)
+    setTaskCancel(task.cancel)
+    try {
+      return await task.promise
+    } finally {
+      setTaskCancel(noop)
+    }
+  }
   let result: LX.Music.MusicInfoOnline[] = []
-  result = await getOtherSource(musicInfo)
-  if (result.length) try { return await handler(result) } catch {}
+  throwIfCancelled()
+  result = await requestOtherSource(musicInfo)
+  throwIfCancelled()
+  if (result.length) {
+    try {
+      return await handler(result)
+    } catch (err: any) {
+      if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+    }
+  }
   if (musicInfo.name.includes('-')) {
     const [name, singer] = musicInfo.name.split('-').map(val => val.trim())
-    result = await getOtherSource({
+    throwIfCancelled()
+    result = await requestOtherSource({
       ...musicInfo,
       name,
       singer,
-    }, true)
-    if (result.length) try { return await handler(result) } catch {}
-    result = await getOtherSource({
+    })
+    throwIfCancelled()
+    if (result.length) {
+      try {
+        return await handler(result)
+      } catch (err: any) {
+        if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+      }
+    }
+    throwIfCancelled()
+    result = await requestOtherSource({
       ...musicInfo,
       name: singer,
       singer: name,
-    }, true)
-    if (result.length) try { return await handler(result) } catch {}
+    })
+    throwIfCancelled()
+    if (result.length) {
+      try {
+        return await handler(result)
+      } catch (err: any) {
+        if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+      }
+    }
   }
   let fileName = musicInfo.meta.filePath.split(/\/|\\/).at(-1)
   if (fileName) {
@@ -41,61 +105,105 @@ const getOtherSourceByLocal = async<T>(musicInfo: LX.Music.MusicInfoLocal, handl
     if (fileName != musicInfo.name) {
       if (fileName.includes('-')) {
         const [name, singer] = fileName.split('-').map(val => val.trim())
-        result = await getOtherSource({
+        throwIfCancelled()
+        result = await requestOtherSource({
           ...musicInfo,
           name,
           singer,
-        }, true)
-        if (result.length) try { return await handler(result) } catch {}
-        result = await getOtherSource({
+        })
+        throwIfCancelled()
+        if (result.length) {
+          try {
+            return await handler(result)
+          } catch (err: any) {
+            if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+          }
+        }
+        throwIfCancelled()
+        result = await requestOtherSource({
           ...musicInfo,
           name: singer,
           singer: name,
-        }, true)
+        })
       } else {
-        result = await getOtherSource({
+        throwIfCancelled()
+        result = await requestOtherSource({
           ...musicInfo,
           name: fileName,
           singer: '',
-        }, true)
+        })
       }
-      if (result.length) try { return await handler(result) } catch {}
+      throwIfCancelled()
+      if (result.length) {
+        try {
+          return await handler(result)
+        } catch (err: any) {
+          if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+        }
+      }
     }
   }
 
   throw new Error('source not found')
 }
 
-export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {} }: {
+export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
   musicInfo: LX.Music.MusicInfoLocal
   isRefresh: boolean
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  taskOptions?: MusicUrlTaskOptions
 }): Promise<string> => {
-  if (!isRefresh) {
-    const path = await getLocalFilePath(musicInfo)
-    if (path) return encodePath(path)
+  return createGetMusicUrlTask({ musicInfo, isRefresh, allowToggleSource, onToggleSource, taskOptions }).promise
+}
+
+export const createGetMusicUrlTask = ({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
+  musicInfo: LX.Music.MusicInfoLocal
+  isRefresh: boolean
+  allowToggleSource?: boolean
+  onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  taskOptions?: MusicUrlTaskOptions
+}): CancelableTask<string> => {
+  let isCancelled = false
+  let cancelTask = () => {}
+  return {
+    cancel() {
+      isCancelled = true
+      cancelTask()
+    },
+    promise: (async() => {
+      if (!isRefresh) {
+        const path = await getLocalFilePath(musicInfo)
+        if (path) return encodePath(path)
+      }
+
+      try {
+        const task = getOnlineOtherSourceMusicUrlByLocalTask(musicInfo, isRefresh, taskOptions)
+        cancelTask = task.cancel
+        const { url, quality, isFromCache } = await task.promise
+        if (isCancelled) throw new Error(requestMsg.cancelRequest)
+        if (!isFromCache && !isUserApiSourceSelected()) void saveMusicUrl(musicInfo, quality, url)
+        return url
+      } catch (err: any) {
+        if (err.message == requestMsg.cancelRequest) throw err
+      }
+
+      if (!allowToggleSource) throw new Error('failed')
+      if (isCancelled) throw new Error(requestMsg.cancelRequest)
+
+      onToggleSource()
+      return getOtherSourceByLocal(musicInfo, async(otherSource) => {
+        const task = getOnlineOtherSourceMusicUrlTask({ musicInfos: [...otherSource], onToggleSource, isRefresh, taskOptions })
+        cancelTask = task.cancel
+        const { url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache } = await task.promise
+        if (isCancelled) throw new Error(requestMsg.cancelRequest)
+        if (!isFromCache && !isUserApiSourceSelected()) void saveMusicUrl(targetMusicInfo, targetQuality, url)
+        return url
+      }, taskOptions, () => isCancelled, (cancel) => {
+        cancelTask = cancel
+      })
+    })(),
   }
-
-  try {
-    return await getOnlineOtherSourceMusicUrlByLocal(musicInfo, isRefresh).then(({ url, quality, isFromCache }) => {
-      if (!isFromCache) void saveMusicUrl(musicInfo, quality, url)
-      return url
-    })
-  } catch {}
-
-  if (!allowToggleSource) throw new Error('failed')
-
-  onToggleSource()
-  return getOtherSourceByLocal(musicInfo, async(otherSource) => {
-    return getOnlineOtherSourceMusicUrl({ musicInfos: [...otherSource], onToggleSource, isRefresh }).then(({ url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache }) => {
-      // saveLyric(musicInfo, data.lyricInfo)
-      if (!isFromCache) void saveMusicUrl(targetMusicInfo, targetQuality, url)
-
-      // TODO: save url ?
-      return url
-    })
-  })
 }
 
 export const getPicUrl = async({ musicInfo, listId, isRefresh, onToggleSource = () => {} }: {

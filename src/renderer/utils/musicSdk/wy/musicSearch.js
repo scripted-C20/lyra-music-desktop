@@ -26,7 +26,8 @@ export default {
       total: page == 1,
       limit,
     })
-    return searchRequest.promise.then(({ body }) => body)
+    searchRequest.promise = searchRequest.promise.then(({ body }) => body)
+    return searchRequest
   },
   getSinger(singers) {
     let arr = []
@@ -91,16 +92,31 @@ export default {
       }
     })
   },
-  search(str, page = 1, limit, retryNum = 0) {
+  search(str, page = 1, limit, retryNum = 0, taskInfo = null) {
+    if (!taskInfo) {
+      taskInfo = {
+        cancelled: false,
+        cancel: () => {},
+      }
+      const promise = this.search(str, page, limit, retryNum, taskInfo)
+      promise.cancelHttp = () => {
+        if (taskInfo.cancelled) return
+        taskInfo.cancelled = true
+        taskInfo.cancel()
+      }
+      return promise
+    }
+    if (taskInfo.cancelled) return Promise.reject(new Error('Cancel request'))
     if (++retryNum > 3) return Promise.reject(new Error('try max num'))
     if (limit == null) limit = this.limit
-    return this.musicSearch(str, page, limit).then(result => {
-      // console.log(result)
-      if (!result || result.code !== 200) return this.search(str, page, limit, retryNum)
+    const requestObj = this.musicSearch(str, page, limit)
+    taskInfo.cancel = typeof requestObj.cancelHttp == 'function' ? requestObj.cancelHttp.bind(requestObj) : () => {}
+    return requestObj.promise.then(result => {
+      if (taskInfo.cancelled) throw new Error('Cancel request')
+      if (!result || result.code !== 200) return this.search(str, page, limit, retryNum, taskInfo)
       let list = this.handleResult(result.data.resources || [])
-      // console.log(list)
 
-      if (list == null) return this.search(str, page, limit, retryNum)
+      if (list == null) return this.search(str, page, limit, retryNum, taskInfo)
 
       this.total = result.data.totalCount || 0
       this.page = page
@@ -113,7 +129,6 @@ export default {
         total: this.total,
         source: 'wy',
       }
-      // return result.data
     })
   },
 }

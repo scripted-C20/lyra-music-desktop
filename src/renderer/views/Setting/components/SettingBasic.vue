@@ -48,6 +48,17 @@ dd
           span(v-if="item.statusLabel" :class="$style.status") {{ item.statusLabel }}
     .p.gap-top
       base-btn.btn(min @click="isShowUserApiModal = true") {{ $t('setting__basic_source_user_api_btn') }}
+    .p.gap-top
+      .p.small {{ $t('setting__basic_source_search_timeout') }}
+      .p(:class="$style.sourceTimeout")
+        base-input(
+          :class="$style.timeoutInput"
+          :model-value="appSetting['common.sourceSearchTimeout']"
+          type="number"
+          @update:model-value="setSourceSearchTimeout"
+        )
+        span(:class="$style.timeoutUnit") {{ $t('setting__basic_source_search_timeout_unit') }}
+      .p.small(:class="$style.sourceTimeoutTip") {{ $t('setting__basic_source_search_timeout_tip') }}
 
 dd
   h3#basic_window_size {{ $t('setting__basic_window_size') }}
@@ -95,6 +106,8 @@ user-api-modal(v-model="isShowUserApiModal")
 
 <script>
 import { computed, ref, watch, reactive, shallowReactive } from '@common/utils/vueTools'
+import { debounce } from '@common/utils'
+import { normalizeSourceSearchTimeout } from '@common/constants'
 import { windowSizeList, userApi, isFullscreen, isWindowMaximized, themeId } from '@renderer/store'
 import { langList, useI18n } from '@root/lang'
 import { getSystemFonts, maxWindow, setFullScreen, setWindowSize } from '@renderer/utils/ipc'
@@ -273,6 +286,9 @@ export default {
         })),
       ]
     })
+    const setSourceSearchTimeout = debounce(value => {
+      updateSetting({ 'common.sourceSearchTimeout': normalizeSourceSearchTimeout(value) })
+    }, 500)
 
     const sourceNameTypes = computed(() => {
       return [
@@ -376,6 +392,7 @@ export default {
       timeLabel,
       apiSources,
       isShowUserApiModal,
+      setSourceSearchTimeout,
       fullscreenWindowSizeId,
       windowSizeOptions,
       windowSizeSelectionValue,
@@ -650,6 +667,25 @@ export default {
     color: var(--ui-text-accent);
     font-size: var(--ui-font-meta);
   }
+}
+
+.sourceTimeout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeoutInput {
+  width: 96px;
+}
+
+.timeoutUnit {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-caption);
+}
+
+.sourceTimeoutTip {
+  color: var(--ui-text-tertiary);
 }
 
 </style>

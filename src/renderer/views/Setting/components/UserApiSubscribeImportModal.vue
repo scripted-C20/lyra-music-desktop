@@ -4,6 +4,14 @@ material-modal(:show="show" teleport="#view" @close="handleClose")
     div(:class="$style.header")
       h2 {{ $t('user_api_subscribe_import__title') }}
     base-input(
+      ref="nameInput"
+      v-model="subscriptionName"
+      :class="$style.input"
+      type="text"
+      :placeholder="$t('user_api_subscribe_import__name_tip')"
+      :disabled="isFetchingSubscribe"
+    )
+    base-input(
       ref="input"
       v-model="url"
       :class="$style.input"
@@ -13,6 +21,7 @@ material-modal(:show="show" teleport="#view" @close="handleClose")
       @submit="handleFetchSubscribe"
     )
     div(v-if="isFetchingSubscribe" :class="$style.loading")
+      line-icon(:icon="LoaderCircle" :size="18" :class="$style.loadingIcon")
       p {{ $t('user_api_subscribe_import__input_loading') }}
     div(v-else-if="subscribeSources.length" :class="$style.preview")
       div(:class="$style.previewHeader")
@@ -28,16 +37,26 @@ material-modal(:show="show" teleport="#view" @close="handleClose")
               span(v-if="source.version") {{ /^\d/.test(source.version) ? `v${source.version}` : source.version }}
               span(v-if="source.author") {{ source.author }}
             p(v-if="source.description") {{ source.description }}
-      div(:class="$style.footer")
-        base-btn(:class="[$style.btn, $style.cancelBtn]" @click="handleClose") {{ $t('btn_close') }}
-        base-btn(:class="[$style.btn, $style.primaryBtn]" :disabled="isImporting || !hasSelected" @click="handleBatchImport") {{ importBtnText }}
     div(v-else-if="subscribeFetched" :class="$style.empty")
       p {{ $t('user_api_subscribe_import__empty') }}
-      div(:class="$style.footer")
-        base-btn(:class="$style.btn" @click="handleClose") {{ $t('btn_close') }}
-    div(v-else :class="$style.footer")
-      base-btn(:class="[$style.btn, $style.cancelBtn]" @click="handleClose") {{ $t('btn_close') }}
-      base-btn(:class="[$style.btn, $style.primaryBtn]" :disabled="isFetchingSubscribe || !url" @click="handleFetchSubscribe") {{ $t('user_api_subscribe_import__input_confirm') }}
+    div(:class="$style.footer")
+      base-btn(:class="[$style.btn, $style.cancelBtn]" :disabled="isFetchingSubscribe" @click="handleClose") {{ $t('btn_close') }}
+      base-btn(
+        v-if="subscribeSources.length"
+        :class="[$style.btn, $style.primaryBtn, isImporting ? $style.btnLoading : null]"
+        :disabled="isImporting || !hasSelected"
+        @click="handleBatchImport"
+      )
+        line-icon(v-if="isImporting" :icon="LoaderCircle" :size="16" :class="$style.btnLoadingIcon")
+        span {{ importBtnText }}
+      base-btn(
+        v-else
+        :class="[$style.btn, $style.primaryBtn, isFetchingSubscribe ? $style.btnLoading : null]"
+        :disabled="isFetchingSubscribe || !url"
+        @click="handleFetchSubscribe"
+      )
+        line-icon(v-if="isFetchingSubscribe" :icon="LoaderCircle" :size="16" :class="$style.btnLoadingIcon")
+        span {{ fetchBtnText }}
 </template>
 
 <script>
@@ -45,6 +64,7 @@ import { httpFetch } from '@renderer/utils/request'
 import { importUserApi, setUserApi } from '@renderer/utils/ipc'
 import { updateSetting } from '@renderer/store/setting'
 import { dialog } from '@renderer/plugins/Dialog'
+import { LoaderCircle } from 'lucide-vue-next'
 
 export default {
   props: {
@@ -54,8 +74,14 @@ export default {
     },
   },
   emits: ['update:show', 'imported'],
+  setup() {
+    return {
+      LoaderCircle,
+    }
+  },
   data() {
     return {
+      subscriptionName: '',
       url: '',
       isFetchingSubscribe: false,
       subscribeFetched: false,
@@ -74,17 +100,22 @@ export default {
       if (!this.isImporting) return this.$t('user_api_subscribe_import__import_btn')
       return this.$t('user_api_subscribe_import__importing')
     },
+    fetchBtnText() {
+      if (!this.isFetchingSubscribe) return this.$t('user_api_subscribe_import__input_confirm')
+      return this.$t('user_api_subscribe_import__input_loading')
+    },
   },
   watch: {
     show(n) {
       if (n) {
         this.resetState()
-        this.$nextTick(() => this.$refs.input?.focus())
+        this.$nextTick(() => this.$refs.nameInput?.focus())
       }
     },
   },
   methods: {
     resetState() {
+      this.subscriptionName = ''
       this.url = ''
       this.isFetchingSubscribe = false
       this.subscribeFetched = false
@@ -96,33 +127,54 @@ export default {
       this.$emit('update:show', false)
     },
     verifyUrl() {
+      this.url = this.url.trim()
       if (!/^https?:\/\//.test(this.url)) this.url = ''
       return this.url
     },
+    verifyName() {
+      this.subscriptionName = this.subscriptionName.trim()
+      return this.subscriptionName
+    },
+    parseSubscribePayload(body) {
+      if (Array.isArray(body)) return body
+      if (typeof body === 'string') {
+        let data
+        try {
+          data = JSON.parse(body)
+        } catch {
+          throw new Error(this.$t('user_api_subscribe_import__invalid_json'))
+        }
+        if (Array.isArray(data)) return data
+      }
+      throw new Error(this.$t('user_api_subscribe_import__invalid_format'))
+    },
+    normalizeSubscribeSources(body) {
+      return this.parseSubscribePayload(body)
+        .filter(item => item?.name && item?.url)
+        .map(item => ({
+          name: item.name,
+          description: item.description || '',
+          author: item.author || '',
+          version: item.version || '',
+          homepage: item.homepage || '',
+          script: item.url,
+          selected: false,
+        }))
+    },
     async handleFetchSubscribe() {
+      const subscriptionName = this.verifyName()
       const url = this.verifyUrl()
+      if (!subscriptionName) {
+        void dialog(this.$t('user_api_subscribe_import__name_required'))
+        return
+      }
       if (!url) return
       this.isFetchingSubscribe = true
       this.subscribeFetched = false
       this.subscribeSources = []
       try {
         const resp = await httpFetch(url, { follow_max: 3 }).promise
-        const data = resp.body
-        if (!Array.isArray(data)) {
-          void dialog(this.$t('user_api_subscribe_import__invalid_format'))
-          return
-        }
-        this.subscribeSources = data
-          .filter(item => item.name && item.url)
-          .map(item => ({
-            name: item.name,
-            description: item.description || '',
-            author: item.author || '',
-            version: item.version || '',
-            homepage: item.homepage || '',
-            script: item.url,
-            selected: false,
-          }))
+        this.subscribeSources = this.normalizeSubscribeSources(resp.body)
         this.subscribeFetched = true
       } catch (err) {
         void dialog(this.$t('user_api_subscribe_import__failed', { message: err.message }))
@@ -137,6 +189,11 @@ export default {
     async handleBatchImport() {
       const selectedSources = this.subscribeSources.filter(s => s.selected)
       if (!selectedSources.length) return
+      const subscriptionName = this.verifyName()
+      if (!subscriptionName) {
+        void dialog(this.$t('user_api_subscribe_import__name_required'))
+        return
+      }
       this.isImporting = true
       let successCount = 0
       let failCount = 0
@@ -154,7 +211,14 @@ export default {
             failCount++
             continue
           }
-          const result = await importUserApi(script)
+          const result = await importUserApi({
+            script,
+            origin: {
+              type: 'subscribe',
+              subscribeName: subscriptionName,
+              subscribeUrl: this.url,
+            },
+          })
           if (!firstImportedId && result.apiInfo) {
             firstImportedId = result.apiInfo.id
           }
@@ -168,7 +232,10 @@ export default {
         updateSetting({ 'common.apiSource': firstImportedId })
       }
       void dialog(this.$t('user_api_subscribe_import__import_result', { success: successCount, fail: failCount }))
-      this.$emit('imported')
+      this.$emit('imported', {
+        subscribeName: subscriptionName,
+        subscribeUrl: this.url,
+      })
       if (successCount > 0) {
         this.handleClose()
       }
@@ -214,10 +281,20 @@ export default {
 }
 
 .loading {
+  display: flex;
+  flex-flow: column nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   text-align: center;
   padding: 40px 0;
   font-size: 14px;
   color: var(--color-font-label);
+}
+
+.loadingIcon,
+.btnLoadingIcon {
+  animation: subscribeSpin 1s linear infinite;
 }
 
 .preview {
@@ -331,9 +408,16 @@ export default {
   min-width: 80px;
   height: 36px;
   line-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 16px !important;
   font-size: 13px;
   border-radius: 8px;
+}
+
+.btnLoading {
+  box-shadow: 0 10px 22px var(--color-primary-alpha-700);
 }
 
 .primaryBtn {
@@ -353,5 +437,14 @@ export default {
   color: var(--color-font);
   background: var(--color-primary-background-hover);
   border: 1px solid var(--color-border);
+}
+
+@keyframes subscribeSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

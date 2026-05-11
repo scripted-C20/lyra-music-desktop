@@ -10,10 +10,12 @@ transition(enter-active-class="animated slideInRight" leave-active-class="animat
       div.left(:class="$style.left")
         div(:class="$style.info")
           div(:class="$style.infoCard")
-            div(:class="[$style.coverFrame, { [$style.coverPlaying]: isPlay }]")
-              img(v-if="musicInfo.pic" :class="$style.img" :src="musicInfo.pic")
+            div(:class="[$style.coverFrame, { [$style.coverPlaying]: isPlay, [$style.coverLoading]: showLoadingEffect }]")
+              img(v-if="musicInfo.pic" :class="$style.img" :src="musicInfo.pic" @error="handleImgError")
               div(v-else :class="$style.imgPlaceholder")
                 span {{ (musicInfo.name || '').slice(0, 1) || 'L' }}
+              div(v-if="showLoadingEffect" :class="$style.loadingOverlay")
+                span(:class="$style.loadingRing")
 
       transition(enter-active-class="animated fadeIn" leave-active-class="animated fadeOut")
         LyricPlayer(v-if="visibled" @dblclick="handleDblclick")
@@ -30,12 +32,14 @@ import { computed, ref, watch } from '@common/utils/vueTools'
 import { isFullscreen } from '@renderer/store'
 import {
   isPlay,
+  isPlayLoading,
   isShowPlayerDetail,
   isShowPlayComment,
   musicInfo,
   playMusicInfo,
 } from '@renderer/store/player/state'
 import {
+  setMusicInfo,
   setShowPlayerDetail,
   setShowPlayComment,
   setShowPlayLrcSelectContentLrc,
@@ -61,6 +65,7 @@ export default {
   setup() {
     const visibled = ref(false)
     const dom_container = ref(null)
+    const showLoadingEffect = computed(() => !!musicInfo.id && isPlayLoading.value)
     const bgStyle = computed(() => {
       if (!musicInfo.pic) return null
       const url = String(musicInfo.pic).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -138,6 +143,9 @@ export default {
     const hideComment = () => {
       setShowPlayComment(false)
     }
+    const handleImgError = () => {
+      setMusicInfo({ pic: null })
+    }
 
     const handleAfterEnter = () => {
       if (isFullscreen.value) registerAutoHideMounse()
@@ -167,10 +175,12 @@ export default {
       bgStyle,
       dom_container,
       isPlay,
+      showLoadingEffect,
       playMusicInfo,
       isShowPlayerDetail,
       isShowPlayComment,
       musicInfo,
+      handleImgError,
       hide,
       handleClickCapture,
       handleDblclick,
@@ -405,6 +415,16 @@ export default {
 .coverPlaying {
   animation: playDetailDiscSpin 28s linear infinite;
 }
+.coverLoading {
+  &:before {
+    animation: coverGlow 1.6s ease-in-out infinite;
+  }
+
+  .img,
+  .imgPlaceholder {
+    animation: coverPulse 1.6s ease-in-out infinite;
+  }
+}
 .img {
   display: block;
   position: absolute;
@@ -438,6 +458,35 @@ export default {
   font-size: clamp(46px, 5vw, 76px);
   font-weight: 700;
   color: var(--color-primary-dark-200);
+}
+.loadingOverlay {
+  position: absolute;
+  left: 18%;
+  top: 18%;
+  z-index: 4;
+  width: 64%;
+  height: 64%;
+  overflow: hidden;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.08), rgba(17, 24, 39, 0.22)),
+    linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.28) 42%, transparent 66%);
+  background-size: auto, 180% 100%;
+  background-position: 0 0, 120% 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: coverShimmer 1.25s linear infinite;
+}
+.loadingRing {
+  width: 28px;
+  height: 28px;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  border-top-color: rgba(255, 255, 255, 0.96);
+  border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  animation: coverSpin 0.85s linear infinite;
 }
 .comment {
   flex: 0 0 0;
@@ -477,6 +526,58 @@ export default {
 @keyframes playDetailDiscSpin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes coverSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes coverShimmer {
+  from {
+    background-position: 0 0, 120% 0;
+  }
+
+  to {
+    background-position: 0 0, -40% 0;
+  }
+}
+
+@keyframes coverPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: saturate(1);
+  }
+
+  50% {
+    transform: scale(0.97);
+    filter: saturate(0.92);
+  }
+}
+
+@keyframes coverGlow {
+  0%, 100% {
+    opacity: 0.88;
+    box-shadow:
+      0 22px 34px rgba(15, 23, 42, 0.1),
+      0 6px 12px rgba(15, 23, 42, 0.08),
+      0 0 0 6px rgba(198, 47, 47, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 24px 38px rgba(15, 23, 42, 0.12),
+      0 8px 14px rgba(15, 23, 42, 0.1),
+      0 0 0 12px rgba(198, 47, 47, 0.12),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
 }
 

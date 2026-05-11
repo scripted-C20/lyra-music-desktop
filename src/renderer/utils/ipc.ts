@@ -4,6 +4,7 @@ import { type ProgressInfo, type UpdateDownloadedEvent, type UpdateInfo } from '
 import { markRaw } from '@common/utils/vueTools'
 import * as hotKeys from '@common/hotKey'
 import { APP_EVENT_NAMES, DATA_KEYS, DEFAULT_SETTING } from '@common/constants'
+import { requestMsg } from './message'
 
 type RemoveListener = () => void
 
@@ -121,8 +122,11 @@ export const onUpdateNotAvailable = (listener: LX.IpcRendererEventListenerParams
 }
 
 
-export const importUserApi = async(fileText: string) => {
-  return rendererInvoke<string, LX.UserApi.ImportUserApi>(WIN_MAIN_RENDERER_EVENT_NAME.import_user_api, fileText)
+export const importUserApi = async(params: string | LX.UserApi.ImportUserApiParams) => {
+  return rendererInvoke<string | LX.UserApi.ImportUserApiParams, LX.UserApi.ImportUserApi>(WIN_MAIN_RENDERER_EVENT_NAME.import_user_api, params)
+}
+export const exportUserApi = async(ids: LX.UserApi.UserApiExportParams) => {
+  return rendererInvoke<LX.UserApi.UserApiExportParams, LX.UserApi.UserApiExportItem[]>(WIN_MAIN_RENDERER_EVENT_NAME.export_user_api, ids)
 }
 export const setUserApi = async(source: LX.UserApi.UserApiSetApiParams): Promise<void> => {
   return rendererInvoke<LX.UserApi.UserApiSetApiParams>(WIN_MAIN_RENDERER_EVENT_NAME.set_user_api, source)
@@ -148,10 +152,34 @@ export const onUserApiStatus = (listener: LX.IpcRendererEventListenerParams<LX.U
 export const getUserApiList = async() => {
   return rendererInvoke<LX.UserApi.UserApiInfo[]>(WIN_MAIN_RENDERER_EVENT_NAME.get_user_api_list)
 }
+export const testUserApiLatency = async(params: LX.UserApi.UserApiLatencyTestParams) => {
+  return rendererInvoke<LX.UserApi.UserApiLatencyTestParams, LX.UserApi.UserApiLatencyTestResult>(WIN_MAIN_RENDERER_EVENT_NAME.user_api_test_latency, params)
+}
+export const cancelUserApiLatencyTest = (apiId: LX.UserApi.UserApiLatencyTestCancelParams) => {
+  rendererSend(WIN_MAIN_RENDERER_EVENT_NAME.user_api_test_latency_cancel, apiId)
+}
+const normalizeUserApiRequestError = (error: unknown): Error => {
+  const message = error instanceof Error ? error.message : String(error)
+  switch (message) {
+    case 'Cancel request':
+      return new Error(requestMsg.cancelRequest)
+    case 'too many requests':
+      return new Error(requestMsg.tooManyRequests)
+    case 'Request timeout':
+      return new Error(requestMsg.timeout)
+    default:
+      return error instanceof Error ? error : new Error(message)
+  }
+}
 export const sendUserApiRequest = async({ requestKey, data }: LX.UserApi.UserApiRequestParams): Promise<any> => {
   return rendererInvoke(WIN_MAIN_RENDERER_EVENT_NAME.request_user_api, {
     requestKey,
     data,
+  }).then((result: any) => {
+    if (result?.__cancelled__ === true) throw new Error(requestMsg.cancelRequest)
+    return result
+  }).catch((error: unknown) => {
+    throw normalizeUserApiRequestError(error)
   })
 }
 export const userApiRequestCancel = (requestKey: LX.UserApi.UserApiRequestCancelParams) => {

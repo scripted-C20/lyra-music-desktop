@@ -6,6 +6,9 @@
       :limit="listDetailInfo.limit"
       :total="listDetailInfo.total"
       :list="listDetailInfo.list"
+      :current-list-id="currentListId"
+      enable-search-bar
+      show-play-current-btn
       :no-item="listDetailInfo.noItemLabel"
       @show-menu="hideListsMenu"
       @play-list="handlePlayList"
@@ -15,7 +18,7 @@
 </template>
 
 <script setup lang="ts">
-import { watch } from '@common/utils/vueTools'
+import { computed, watch } from '@common/utils/vueTools'
 import useList from './useList'
 
 
@@ -25,6 +28,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['show-menu'])
+const currentListId = computed(() => props.boardId ? `board__${props.boardId}` : '')
 
 const {
   listRef,
@@ -50,7 +54,7 @@ const togglePage = (page: number) => {
 }
 
 const hideMenu = () => {
-  listRef.value.handleMenuClick()
+  listRef.value?.hideMenu?.()
 }
 
 defineExpose({ hideMenu })

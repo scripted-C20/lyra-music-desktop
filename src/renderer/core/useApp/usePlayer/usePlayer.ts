@@ -20,6 +20,7 @@ import {
 import {
   setPlay,
   setAllStatus,
+  setPlayLoading,
   addPlayedList,
   clearPlayedList,
   // resetPlayerMusicInfo,
@@ -87,6 +88,7 @@ export default () => {
   }
   const handleEnded = () => {
     // setTimeout(() => {
+    setPlayLoading(false)
     setAllStatus(t('player__end'))
     if (window.lx.isPlayedStop) {
       console.log('played stop')
@@ -118,6 +120,7 @@ export default () => {
 
   const setStopStatus = () => {
     setPlay(false)
+    setPlayLoading(false)
     setTitle(null)
     setAllStatus('')
     setStop()

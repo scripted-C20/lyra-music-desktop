@@ -8,9 +8,8 @@ export default {
   page: 0,
   allPage: 1,
   successCode: 0,
-  musicSearch(str, page, limit, retryNum = 0) {
-    if (retryNum > 5) return Promise.reject(new Error('搜索失败'))
-    const searchRequest = signRequest({
+  createSearchRequest(str, page, limit) {
+    return signRequest({
       comm: {
         ct: '11',
         cv: '14090508',
@@ -59,10 +58,17 @@ export default {
         },
       },
     })
-    return searchRequest.then(({ body }) => {
+  },
+  musicSearch(str, page, limit, retryNum = 0, taskInfo = null) {
+    if (taskInfo?.cancelled) return Promise.reject(new Error('Cancel request'))
+    if (retryNum > 5) return Promise.reject(new Error('搜索失败'))
+    const searchRequest = this.createSearchRequest(str, page, limit)
+    if (taskInfo) taskInfo.cancel = typeof searchRequest.cancelHttp == 'function' ? searchRequest.cancelHttp.bind(searchRequest) : () => {}
+    return searchRequest.promise.then(({ body }) => {
+      if (taskInfo?.cancelled) throw new Error('Cancel request')
       // console.log(body)
       if (!body || !body.req || body.code != this.successCode || body.req.code != this.successCode) {
-        return this.musicSearch(str, page, limit, ++retryNum)
+        return this.musicSearch(str, page, limit, ++retryNum, taskInfo)
       }
       return body.req.data
     })
@@ -146,23 +152,37 @@ export default {
     // console.log(list)
     return list
   },
-  search(str, page = 1, limit) {
+  search(str, page = 1, limit, taskInfo = null) {
+    if (!taskInfo) {
+      taskInfo = {
+        cancelled: false,
+        cancel: () => {},
+      }
+      const promise = this.search(str, page, limit, taskInfo)
+      promise.cancelHttp = () => {
+        if (taskInfo.cancelled) return
+        taskInfo.cancelled = true
+        taskInfo.cancel()
+      }
+      return promise
+    }
+    if (taskInfo.cancelled) return Promise.reject(new Error('Cancel request'))
     if (limit == null) limit = this.limit
-    // http://newlyric.kuwo.cn/newlyric.lrc?62355680
-    return this.musicSearch(str, page, limit).then(({ body, meta }) => {
+    return this.musicSearch(str, page, limit, 0, taskInfo).then(({ body, meta }) => {
+      if (taskInfo.cancelled) throw new Error('Cancel request')
       let list = this.handleResult(body.item_song)
 
       this.total = meta.estimate_sum
       this.page = page
       this.allPage = Math.ceil(this.total / limit)
 
-      return Promise.resolve({
+      return {
         list,
         allPage: this.allPage,
         limit,
         total: this.total,
         source: 'tx',
-      })
+      }
     })
   },
 }

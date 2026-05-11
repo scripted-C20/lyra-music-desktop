@@ -184,7 +184,6 @@ export default {
 
     .selection-list {
       max-height: 360px;
-      min-width: 148px;
       li {
         text-align: center;
         justify-content: center;

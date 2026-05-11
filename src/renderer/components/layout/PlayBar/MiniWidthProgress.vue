@@ -1,9 +1,12 @@
 <template>
   <div :class="[$style.player, $style[`player_${resolvedVariant}`]]" @click="handlePlayerClick">
     <div :class="$style.trackMeta">
-      <div :class="$style.picContent" :aria-label="$t('player__pic_tip')" @contextmenu="handleToMusicLocation">
-        <img v-if="musicInfo.pic" :src="musicInfo.pic" decoding="async" @error="imgError">
+      <div :class="[$style.picContent, showLoadingEffect ? $style.picLoading : null]" :aria-label="$t('player__pic_tip')" @contextmenu="handleToMusicLocation">
+        <img v-if="musicInfo.pic" :class="$style.picImg" :src="musicInfo.pic" decoding="async" @error="imgError">
         <div v-else :class="$style.emptyPic">L<span>X</span></div>
+        <div v-if="showLoadingEffect" :class="$style.loadingOverlay">
+          <span :class="$style.loadingRing"></span>
+        </div>
       </div>
       <div :class="$style.infoContent">
         <div :class="$style.title" :aria-label="title + $t('copy_tip')" @contextmenu.prevent="handleCopy(title)">
@@ -21,12 +24,12 @@ type="button" :class="[$style.playBtn, $style.smallBtn]" :aria-label="$t('player
           <line-icon :icon="SkipBack" :size="18" :class="$style.transportIcon" />
         </button>
         <button
-type="button" :class="[$style.playBtn, $style.primaryBtn]"
-          :aria-label="isPlay ? $t('player__pause') : $t('player__play')" @click="togglePlay"
+type="button" :class="[$style.playBtn, $style.primaryBtn, isPrimaryLoadingAction ? $style.primaryBtnLoading : null]"
+          :aria-label="primaryBtnLabel" @click="handlePrimaryAction"
 >
           <line-icon
-:icon="isPlay ? Pause : Play" :size="20"
-            :class="[$style.transportIcon, $style.transportIconPrimary]"
+:icon="primaryBtnIcon" :size="20"
+            :class="[$style.transportIcon, $style.transportIconPrimary, isPrimaryLoadingAction ? $style.transportIconStop : null]"
 />
         </button>
         <button
@@ -46,7 +49,7 @@ type="button" :class="[$style.playBtn, $style.smallBtn]" :aria-label="$t('player
 </template>
 
 <script>
-import { SkipBack, SkipForward, Play, Pause } from 'lucide-vue-next'
+import { SkipBack, SkipForward, Play, Pause, Square } from 'lucide-vue-next'
 
 import ControlBtns from './ControlBtns.vue'
 import PlayProgress from './PlayProgress.vue'
@@ -54,6 +57,7 @@ import { useRouter } from '@common/utils/vueRouter'
 import { clipboardWriteText } from '@common/utils/electron'
 import {
   isPlay,
+  isPlayLoading,
   musicInfo,
   playInfo,
   playMusicInfo,
@@ -105,6 +109,23 @@ export default {
     const resolvedVariant = computed(() => {
       return ['mini', 'middle', 'full'].includes(props.variant) ? props.variant : 'mini'
     })
+    const showLoadingEffect = computed(() => {
+      return !!musicInfo.id && isPlayLoading.value
+    })
+    const isPrimaryLoadingAction = computed(() => {
+      return showLoadingEffect.value && !isPlay.value
+    })
+    const primaryBtnIcon = computed(() => {
+      if (isPrimaryLoadingAction.value) return Square
+      return isPlay.value ? Pause : Play
+    })
+    const primaryBtnLabel = computed(() => {
+      if (isPrimaryLoadingAction.value) return window.i18n.t('player__cancel_loading')
+      return isPlay.value ? window.i18n.t('player__pause') : window.i18n.t('player__play')
+    })
+    const handlePrimaryAction = () => {
+      togglePlay()
+    }
     const handleCopy = (text) => {
       if (!text) return
       clipboardWriteText(text)
@@ -130,13 +151,19 @@ export default {
       SkipForward,
       Play,
       Pause,
+      Square,
       handlePlayerClick,
       showPlayerDetail,
       isPlay,
+      handlePrimaryAction,
       togglePlay,
       playNext,
       playPrev,
       resolvedVariant,
+      showLoadingEffect,
+      isPrimaryLoadingAction,
+      primaryBtnIcon,
+      primaryBtnLabel,
       musicInfo,
       title,
       subtitle,
@@ -265,19 +292,33 @@ export default {
 }
 
 .picContent {
+  position: relative;
   width: 48px;
   height: 48px;
   flex: none;
   display: flex;
   justify-content: center;
+  align-items: center;
+  isolation: isolate;
 
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 14px;
-    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  &:before {
+    .mixin-after();
+    inset: -3px;
+    border-radius: 17px;
+    background: radial-gradient(circle, var(--color-primary-alpha-400), transparent 70%);
+    opacity: 0;
+    transform: scale(0.92);
+    transition: opacity @transition-fast, transform @transition-fast;
+    z-index: -1;
   }
+}
+
+.picImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 14px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
 }
 
 .emptyPic {
@@ -299,6 +340,46 @@ export default {
   span {
     padding-left: 3px;
   }
+}
+
+.picLoading {
+  &:before {
+    opacity: 1;
+    transform: scale(1);
+    animation: coverGlow 1.6s ease-in-out infinite;
+  }
+
+  .picImg,
+  .emptyPic {
+    animation: coverPulse 1.6s ease-in-out infinite;
+  }
+}
+
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.08), rgba(17, 24, 39, 0.22)),
+    linear-gradient(120deg, transparent 18%, rgba(255, 255, 255, 0.28) 42%, transparent 66%);
+  background-size: auto, 180% 100%;
+  background-position: 0 0, 120% 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: coverShimmer 1.25s linear infinite;
+}
+
+.loadingRing {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  border-top-color: rgba(255, 255, 255, 0.96);
+  border-radius: 50%;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  animation: coverSpin 0.85s linear infinite;
 }
 
 .infoContent {
@@ -410,6 +491,11 @@ export default {
   height: 18px;
 }
 
+.transportIconStop {
+  width: 16px;
+  height: 16px;
+}
+
 .smallBtn {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.995), rgba(246, 246, 248, 0.995));
   border: 1px solid rgba(226, 226, 229, 0.96);
@@ -438,6 +524,60 @@ export default {
 
   &:hover {
     box-shadow: 0 16px 28px var(--color-primary-alpha-600);
+  }
+}
+
+.primaryBtnLoading {
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.2), transparent 42%),
+    linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-dark-200) 100%);
+  box-shadow:
+    0 14px 26px var(--color-primary-alpha-500),
+    0 0 0 6px rgba(198, 47, 47, 0.08);
+  animation: loadingBtnPulse 1.25s ease-in-out infinite;
+}
+
+@keyframes coverSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes coverShimmer {
+  from {
+    background-position: 0 0, 120% 0;
+  }
+
+  to {
+    background-position: 0 0, -40% 0;
+  }
+}
+
+@keyframes coverPulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: saturate(1);
+  }
+
+  50% {
+    transform: scale(0.97);
+    filter: saturate(0.92);
+  }
+}
+
+@keyframes coverGlow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(0.94);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.04);
   }
 }
 
@@ -473,6 +613,22 @@ export default {
 
   .progressWrap {
     min-width: 200px;
+  }
+}
+
+@keyframes loadingBtnPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow:
+      0 14px 26px var(--color-primary-alpha-500),
+      0 0 0 6px rgba(198, 47, 47, 0.08);
+  }
+
+  50% {
+    transform: scale(0.97);
+    box-shadow:
+      0 18px 30px var(--color-primary-alpha-600),
+      0 0 0 10px rgba(198, 47, 47, 0.12);
   }
 }
 </style>

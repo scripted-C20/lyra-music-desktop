@@ -31,6 +31,29 @@ export const LIST_IDS = {
   PLAY_LATER: null,
 } as const
 
+export const SOURCE_SEARCH_TIMEOUT = {
+  DEFAULT: 15,
+  MIN: 1,
+  MAX: 60,
+} as const
+
+export const SOURCE_SEARCH_TIMEOUT_BUFFER_MS = 10_000
+
+export const normalizeSourceSearchTimeout = (value: unknown) => {
+  if (value == null || value === '') return SOURCE_SEARCH_TIMEOUT.DEFAULT
+  const timeout = Math.trunc(Number(value))
+  if (!Number.isFinite(timeout)) return SOURCE_SEARCH_TIMEOUT.DEFAULT
+  return Math.min(SOURCE_SEARCH_TIMEOUT.MAX, Math.max(SOURCE_SEARCH_TIMEOUT.MIN, timeout))
+}
+
+export const getSourceSearchTimeoutMs = (value: unknown) => {
+  return normalizeSourceSearchTimeout(value) * 1_000
+}
+
+export const getSourceSearchTimeoutWithBufferMs = (value: unknown, bufferMs: number = SOURCE_SEARCH_TIMEOUT_BUFFER_MS) => {
+  return getSourceSearchTimeoutMs(value) + Math.max(0, Math.trunc(bufferMs))
+}
+
 export const DATA_KEYS = {
   viewPrevState: 'viewPrevState',
   playInfo: 'playInfo',

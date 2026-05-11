@@ -1,25 +1,51 @@
 import { getDownloadFilePath } from '@renderer/utils/music'
+import { requestMsg } from '@renderer/utils/message'
 
 import {
-  getMusicUrl as getOnlineMusicUrl,
+  createGetMusicUrlTask as createOnlineGetMusicUrlTask,
   getPicUrl as getOnlinePicUrl,
   getLyricInfo as getOnlineLyricInfo,
 } from './online'
-import { buildLyricInfo, getCachedLyricInfo } from './utils'
+import { buildLyricInfo, getCachedLyricInfo, type CancelableTask, type MusicUrlTaskOptions } from './utils'
 import { buildSavePath } from '@renderer/store/download/utils'
 
-export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {} }: {
+export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
   musicInfo: LX.Download.ListItem
   isRefresh: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
+  taskOptions?: MusicUrlTaskOptions
 }): Promise<string> => {
-  if (!isRefresh) {
-    const path = await getDownloadFilePath(musicInfo, buildSavePath(musicInfo))
-    if (path) return path
-  }
+  return createGetMusicUrlTask({ musicInfo, isRefresh, allowToggleSource, onToggleSource, taskOptions }).promise
+}
 
-  return getOnlineMusicUrl({ musicInfo: musicInfo.metadata.musicInfo, isRefresh, onToggleSource, allowToggleSource })
+export const createGetMusicUrlTask = ({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
+  musicInfo: LX.Download.ListItem
+  isRefresh: boolean
+  onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  allowToggleSource?: boolean
+  taskOptions?: MusicUrlTaskOptions
+}): CancelableTask<string> => {
+  let cancelTask = () => {}
+  let isCancelled = false
+  return {
+    cancel() {
+      isCancelled = true
+      cancelTask()
+    },
+    promise: (async() => {
+      if (!isRefresh) {
+        const path = await getDownloadFilePath(musicInfo, buildSavePath(musicInfo))
+        if (path) return path
+      }
+
+      const task = createOnlineGetMusicUrlTask({ musicInfo: musicInfo.metadata.musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
+      cancelTask = task.cancel
+      const url = await task.promise
+      if (isCancelled) throw new Error(requestMsg.cancelRequest)
+      return url
+    })(),
+  }
 }
 
 export const getPicUrl = async({ musicInfo, isRefresh, listId, onToggleSource = () => {} }: {

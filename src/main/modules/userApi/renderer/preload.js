@@ -9,6 +9,7 @@ import { httpOverHttp, httpsOverHttp } from 'tunnel'
 const sendMessage = (action, data, status, message) => {
   ipcRenderer.send(action, { data, status, message })
 }
+const CANCEL_ERROR_MESSAGE = 'Request canceled'
 
 let isInitedApi = false
 const proxy = {
@@ -25,6 +26,7 @@ const eventNames = Object.values(EVENT_NAMES)
 const events = {
   request: null,
 }
+const activeRequests = new Map()
 const allSources = ['kw', 'kg', 'tx', 'wy', 'mg', 'local']
 const supportQualitys = {
   kw: ['128k', '320k', 'flac', 'flac24bit'],
@@ -65,11 +67,59 @@ const verifyLyricInfo = (info) => {
   }
 }
 
+const getErrorMessage = (err) => {
+  return err instanceof Error ? err.message : String(err)
+}
+const createCancelError = () => new Error(CANCEL_ERROR_MESSAGE)
+const removeActiveRequest = (requestKey) => {
+  activeRequests.delete(requestKey)
+}
+const createRequestMeta = (requestKey) => {
+  const controller = new AbortController()
+  const cancelHandlers = new Set()
+  const meta = {
+    requestKey,
+    signal: controller.signal,
+    onCancel(handler) {
+      if (typeof handler != 'function') return () => {}
+      if (controller.signal.aborted) {
+        handler()
+        return () => {}
+      }
+      cancelHandlers.add(handler)
+      return () => {
+        cancelHandlers.delete(handler)
+      }
+    },
+  }
+  activeRequests.set(requestKey, {
+    controller,
+    cancelHandlers,
+  })
+  return meta
+}
+const cancelActiveRequest = (requestKey) => {
+  const activeRequest = activeRequests.get(requestKey)
+  if (!activeRequest) return
+  if (!activeRequest.controller.signal.aborted) activeRequest.controller.abort(createCancelError())
+  for (const handler of activeRequest.cancelHandlers) {
+    try {
+      handler()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+  activeRequest.cancelHandlers.clear()
+  removeActiveRequest(requestKey)
+}
+
 const handleRequest = (context, { requestKey, data }) => {
   // console.log(data)
   if (!events.request) return sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, 'Request event is not defined')
+  const requestMeta = createRequestMeta(requestKey)
   try {
-    events.request.call(context, { source: data.source, action: data.action, info: data.info }).then(response => {
+    Promise.resolve(events.request.call(context, { source: data.source, action: data.action, info: data.info }, requestMeta)).then(response => {
+      if (requestMeta.signal.aborted) return
       let sendData = {
         requestKey,
       }
@@ -103,10 +153,15 @@ const handleRequest = (context, { requestKey, data }) => {
       }
       sendMessage(USER_API_RENDERER_EVENT_NAME.response, sendData, true)
     }).catch(err => {
-      sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, err.message)
+      if (requestMeta.signal.aborted) return
+      sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, getErrorMessage(err))
+    }).finally(() => {
+      removeActiveRequest(requestKey)
     })
   } catch (err) {
-    sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, err.message)
+    removeActiveRequest(requestKey)
+    if (requestMeta.signal.aborted) return
+    sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, getErrorMessage(err))
   }
 }
 
@@ -191,7 +246,7 @@ const initEnv = (userApi) => {
 
   contextBridge.exposeInMainWorld('lx', {
     EVENT_NAMES,
-    request(url, { method = 'get', timeout, headers, body, form, formData }, callback) {
+    request(url, { method = 'get', timeout, headers, body, form, formData, signal }, callback) {
       let options = {
         headers,
         agent: getRequestAgent(url),
@@ -210,18 +265,38 @@ const initEnv = (userApi) => {
       }
       options.response_timeout = typeof timeout == 'number' && timeout > 0 ? Math.min(timeout, 60_000) : 60_000
 
-      let request = needle.request(method, url, data, options, (err, resp, body) => {
+      let isFinished = false
+      let abortListener
+      let request = null
+      const cleanup = () => {
+        if (signal && abortListener) signal.removeEventListener('abort', abortListener)
+        abortListener = null
+      }
+      const finishCallback = (err, resp, body) => {
+        if (isFinished) return
+        isFinished = true
+        cleanup()
+        callback.call(this, err, resp, body)
+      }
+      if (signal?.aborted) {
+        queueMicrotask(() => {
+          finishCallback(createCancelError(), null, null)
+        })
+        return () => {}
+      }
+
+      request = needle.request(method, url, data, options, (err, resp, body) => {
         // console.log(err, resp, body)
         try {
           if (err) {
-            callback.call(this, err, null, null)
+            finishCallback(err, null, null)
           } else {
             body = resp.body = resp.raw.toString()
             try {
               resp.body = JSON.parse(resp.body)
             } catch (_) {}
             body = resp.body
-            callback.call(this, err, {
+            finishCallback(err, {
               statusCode: resp.statusCode,
               statusMessage: resp.statusMessage,
               headers: resp.headers,
@@ -231,12 +306,21 @@ const initEnv = (userApi) => {
             }, body)
           }
         } catch (err) {
+          cleanup()
           onError(err.message)
         }
       }).request
 
+      if (signal) {
+        abortListener = () => {
+          if (request && !request.aborted) request.abort()
+        }
+        signal.addEventListener('abort', abortListener, { once: true })
+      }
+
       return () => {
-        if (!request.aborted) request.abort()
+        cleanup()
+        if (request && !request.aborted) request.abort()
         request = null
       }
     },
@@ -369,6 +453,10 @@ window.addEventListener('unhandledrejection', (event) => {
 
 ipcRenderer.on(USER_API_RENDERER_EVENT_NAME.initEnv, (event, data) => {
   initEnv(data)
+})
+
+ipcRenderer.on(USER_API_RENDERER_EVENT_NAME.cancel, (event, requestKey) => {
+  cancelActiveRequest(requestKey)
 })
 
 ipcRenderer.on(USER_API_RENDERER_EVENT_NAME.proxyUpdate, (event, data) => {

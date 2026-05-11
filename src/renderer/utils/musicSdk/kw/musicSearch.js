@@ -13,10 +13,8 @@ export default {
   total: 0,
   page: 0,
   allPage: 1,
-  // cancelFn: null,
   musicSearch(str, page, limit) {
-    const musicSearchRequestObj = httpFetch(`http://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(str)}&pn=${page - 1}&rn=${limit}&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newver=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&vermerge=1&mobi=1&issubtitle=1`)
-    return musicSearchRequestObj.promise
+    return httpFetch(`http://search.kuwo.cn/r.s?client=kt&all=${encodeURIComponent(str)}&pn=${page - 1}&rn=${limit}&uid=794762570&ver=kwplayer_ar_9.2.2.1&vipver=1&show_copyright_off=1&newver=1&ft=music&cluster=0&strategy=2012&encoding=utf8&rformat=json&vermerge=1&mobi=1&issubtitle=1`)
   },
   // getImg(songId) {
   //   return httpGet(`http://player.kuwo.cn/webmusic/sj/dtflagdate?flag=6&rid=MUSIC_${songId}`)
@@ -99,28 +97,43 @@ export default {
     // console.log(result)
     return result
   },
-  search(str, page = 1, limit, retryNum = 0) {
+  search(str, page = 1, limit, retryNum = 0, taskInfo = null) {
+    if (!taskInfo) {
+      taskInfo = {
+        cancelled: false,
+        cancel: () => {},
+      }
+      const promise = this.search(str, page, limit, retryNum, taskInfo)
+      promise.cancelHttp = () => {
+        if (taskInfo.cancelled) return
+        taskInfo.cancelled = true
+        taskInfo.cancel()
+      }
+      return promise
+    }
+    if (taskInfo.cancelled) return Promise.reject(new Error('Cancel request'))
     if (retryNum > 2) return Promise.reject(new Error('try max num'))
     if (limit == null) limit = this.limit
-    // http://newlyric.kuwo.cn/newlyric.lrc?62355680
-    return this.musicSearch(str, page, limit).then(({ body: result }) => {
-      // console.log(result)
-      if (!result || (result.TOTAL !== '0' && result.SHOW === '0')) return this.search(str, page, limit, ++retryNum)
+    const requestObj = this.musicSearch(str, page, limit)
+    taskInfo.cancel = typeof requestObj.cancelHttp == 'function' ? requestObj.cancelHttp.bind(requestObj) : () => {}
+    return requestObj.promise.then(({ body: result }) => {
+      if (taskInfo.cancelled) throw new Error('Cancel request')
+      if (!result || (result.TOTAL !== '0' && result.SHOW === '0')) return this.search(str, page, limit, ++retryNum, taskInfo)
       let list = this.handleResult(result.abslist)
 
-      if (list == null) return this.search(str, page, limit, ++retryNum)
+      if (list == null) return this.search(str, page, limit, ++retryNum, taskInfo)
 
       this.total = parseInt(result.TOTAL)
       this.page = page
       this.allPage = Math.ceil(this.total / limit)
 
-      return Promise.resolve({
+      return {
         list,
         allPage: this.allPage,
         total: this.total,
         limit,
         source: 'kw',
-      })
+      }
     })
   },
 }

@@ -2,7 +2,7 @@ import { apiSource, qualityList, userApi } from '@renderer/store'
 import { appSetting, setApiSource } from '@renderer/store/setting'
 import { setUserApi as setUserApiAction } from '@renderer/utils/ipc'
 import musicSdk from '@renderer/utils/musicSdk'
-import apiSourceInfo from '@renderer/utils/musicSdk/api-source-info'
+import { getBuiltinFallbackSourceId } from '@renderer/utils/musicSdk/source-fallback'
 
 let prevId = ''
 export const setUserApi = async(apiId: string) => {
@@ -18,6 +18,11 @@ export const setUserApi = async(apiId: string) => {
     })
   }
 
+  const restoreSourceId = () => {
+    if (apiSource.value && apiSource.value !== apiId) return apiSource.value
+    return getBuiltinFallbackSourceId([apiId]) ?? ''
+  }
+
   if (/^user_api/.test(apiId)) {
     qualityList.value = {}
     userApi.status = false
@@ -30,10 +35,12 @@ export const setUserApi = async(apiId: string) => {
       if (prevId != apiId) return
       if (!window.lx.apiInitPromise[1]) window.lx.apiInitPromise[2](false)
       console.log(err)
-      let api = apiSourceInfo.find(api => !api.disabled)
-      if (!api) return
-      apiSource.value = api.id
-      if (api.id != appSetting['common.apiSource']) setApiSource(api.id)
+      userApi.status = false
+      userApi.message = err instanceof Error ? err.message : String(err)
+      const fallbackId = restoreSourceId()
+      if (!fallbackId) return
+      apiSource.value = fallbackId
+      if (fallbackId != appSetting['common.apiSource']) setApiSource(fallbackId)
     })
   } else {
     // @ts-expect-error
@@ -44,5 +51,6 @@ export const setUserApi = async(apiId: string) => {
   }
 
   if (prevId != apiId) return
+  if (/^user_api/.test(apiId) && apiSource.value !== apiId) return
   if (apiId != appSetting['common.apiSource']) setApiSource(apiId)
 }

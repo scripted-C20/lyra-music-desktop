@@ -23,8 +23,8 @@
       <button type="button" :class="$style.playBtn" :aria-label="$t('player__prev')" @click="playPrev()">
         <line-icon :icon="SkipBack" :size="20" :class="$style.playIcon" />
       </button>
-      <button type="button" :class="[$style.playBtn, $style.playBtnCenter]" :aria-label="isPlay ? $t('player__pause') : $t('player__play')" @click="togglePlay">
-        <line-icon :icon="isPlay ? Pause : Play" :size="24" :class="[$style.playIcon, { [$style.isPlayIcon]: !isPlay }]" />
+      <button type="button" :class="[$style.playBtn, $style.playBtnCenter, isPrimaryLoadingAction ? $style.playBtnLoading : null]" :aria-label="primaryBtnLabel" @click="togglePlay">
+        <line-icon :icon="primaryBtnIcon" :size="24" :class="[$style.playIcon, { [$style.isPlayIcon]: !isPlay && !isPrimaryLoadingAction }]" />
       </button>
       <button type="button" :class="$style.playBtn" :aria-label="$t('player__next')" @click="playNext()">
         <line-icon :icon="SkipForward" :size="20" :class="$style.playIcon" />
@@ -39,10 +39,11 @@
 
 <script setup>
 import { playNext, playPrev, togglePlay } from '@renderer/core/player'
-import { isPlay } from '@renderer/store/player/state'
+import { isPlay, isPlayLoading } from '@renderer/store/player/state'
 import usePlayProgress from '@renderer/utils/compositions/usePlayProgress'
-import { SkipBack, Play, Pause, SkipForward } from 'lucide-vue-next'
+import { SkipBack, Play, Pause, SkipForward, Square } from 'lucide-vue-next'
 import LineIcon from '@renderer/components/common/LineIcon.vue'
+import { computed } from '@common/utils/vueTools'
 
 import ControlBtns from './components/ControlBtns.vue'
 
@@ -53,6 +54,16 @@ const {
   isActiveTransition,
   handleTransitionEnd,
 } = usePlayProgress()
+
+const isPrimaryLoadingAction = computed(() => isPlayLoading.value && !isPlay.value)
+const primaryBtnIcon = computed(() => {
+  if (isPrimaryLoadingAction.value) return Square
+  return isPlay.value ? Pause : Play
+})
+const primaryBtnLabel = computed(() => {
+  if (isPrimaryLoadingAction.value) return window.i18n.t('player__cancel_loading')
+  return isPlay.value ? window.i18n.t('player__pause') : window.i18n.t('player__play')
+})
 </script>
 
 <style lang="less" module>
@@ -170,6 +181,12 @@ const {
       0 12px 24px var(--color-primary-alpha-400),
       inset 0 1px 0 rgba(255, 255, 255, 0.28);
   }
+}
+
+.playBtnLoading {
+  box-shadow:
+    0 12px 24px var(--color-primary-alpha-400),
+    0 0 0 6px rgba(198, 47, 47, 0.08);
 }
 
 .progressContainer {

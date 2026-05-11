@@ -10,7 +10,8 @@ export default {
   allPage: 1,
   musicSearch(str, page, limit) {
     const searchRequest = httpFetch(`https://songsearch.kugou.com/song_search_v2?keyword=${encodeURIComponent(str)}&page=${page}&pagesize=${limit}&userid=0&clientver=&platform=WebFilter&filter=2&iscorrection=1&privilege_filter=0&area_code=1`)
-    return searchRequest.promise.then(({ body }) => body)
+    searchRequest.promise = searchRequest.promise.then(({ body }) => body)
+    return searchRequest
   },
   filterData(rawData) {
     const types = []
@@ -82,27 +83,43 @@ export default {
     })
     return list
   },
-  search(str, page = 1, limit, retryNum = 0) {
+  search(str, page = 1, limit, retryNum = 0, taskInfo = null) {
+    if (!taskInfo) {
+      taskInfo = {
+        cancelled: false,
+        cancel: () => {},
+      }
+      const promise = this.search(str, page, limit, retryNum, taskInfo)
+      promise.cancelHttp = () => {
+        if (taskInfo.cancelled) return
+        taskInfo.cancelled = true
+        taskInfo.cancel()
+      }
+      return promise
+    }
+    if (taskInfo.cancelled) return Promise.reject(new Error('Cancel request'))
     if (++retryNum > 3) return Promise.reject(new Error('try max num'))
     if (limit == null) limit = this.limit
-    // http://newlyric.kuwo.cn/newlyric.lrc?62355680
-    return this.musicSearch(str, page, limit).then(result => {
-      if (!result || result.error_code !== 0) return this.search(str, page, limit, retryNum)
+    const requestObj = this.musicSearch(str, page, limit)
+    taskInfo.cancel = typeof requestObj.cancelHttp == 'function' ? requestObj.cancelHttp.bind(requestObj) : () => {}
+    return requestObj.promise.then(result => {
+      if (taskInfo.cancelled) throw new Error('Cancel request')
+      if (!result || result.error_code !== 0) return this.search(str, page, limit, retryNum, taskInfo)
       let list = this.handleResult(result.data.lists)
 
-      if (list == null) return this.search(str, page, limit, retryNum)
+      if (list == null) return this.search(str, page, limit, retryNum, taskInfo)
 
       this.total = result.data.total
       this.page = page
       this.allPage = Math.ceil(this.total / limit)
 
-      return Promise.resolve({
+      return {
         list,
         allPage: this.allPage,
         limit,
         total: this.total,
         source: 'kg',
-      })
+      }
     })
   },
 }

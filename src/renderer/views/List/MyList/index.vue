@@ -3,12 +3,6 @@
     <div :class="$style.listHeader">
       <h2 :class="$style.listsTitle">{{ $t('my_list') }}</h2>
       <div :class="$style.headerBtns">
-        <button
-:class="[$style.listsAdd, $style.listsPlayBtn]" :aria-label="$t('list__play')" :title="$t('list__play')"
-          :disabled="!canPlayCurrentList" @click="handlePlayCurrentList"
->
-          <line-icon :icon="Play" :size="15" />
-        </button>
         <button :class="$style.listsAdd" :aria-label="$t('lists__new_list_btn')" @click="isShowNewList = true">
           <line-icon :icon="ListPlus" :size="16" />
         </button>
@@ -78,7 +72,7 @@ ref="dom_listsNewInput" :class="$style.listsInput" type="text"
 </template>
 
 <script>
-import { ListPlus, Play, RefreshCw, ChevronRight } from 'lucide-vue-next'
+import { ListPlus, RefreshCw, ChevronRight } from 'lucide-vue-next'
 
 import { openUrl } from '@common/utils/electron'
 
@@ -88,10 +82,9 @@ import ListSortModal from './components/ListSortModal.vue'
 import ListUpdateModal from './components/ListUpdateModal.vue'
 
 import { defaultList, loveList, userLists, fetchingListStatus } from '@renderer/store/list/state'
-import { getListMusics, getListMusicsFromCache, removeUserList } from '@renderer/store/list/action'
-import { playList } from '@renderer/core/player/action'
+import { removeUserList } from '@renderer/store/list/action'
 
-import { computed, onBeforeUnmount, ref, watch } from '@common/utils/vueTools'
+import { ref, watch } from '@common/utils/vueTools'
 import { useRouter } from '@common/utils/vueRouter'
 import { LIST_IDS } from '@common/constants'
 
@@ -131,7 +124,6 @@ export default {
 
     const dom_lists_list = ref(null)
     const rightClickItemIndex = ref(-10)
-    const currentListLength = ref(0)
 
     const { handleImportList, handleExportList } = useShare()
     const { isShowListUpdateModal, handleUpdateSourceList } = useListUpdate()
@@ -172,6 +164,7 @@ export default {
       menuLocation,
       isShowMenu,
       showMenu,
+      hideMenu,
       menuClick,
     } = useMenu({
       emit,
@@ -189,34 +182,6 @@ export default {
     const handleListsItemRigthClick = (event, index) => {
       rightClickItemIndex.value = index
       showMenu(event, index)
-    }
-
-    const syncCurrentListLength = async(listId) => {
-      if (!listId) {
-        currentListLength.value = 0
-        return
-      }
-      const cachedList = getListMusicsFromCache(listId)
-      if (cachedList.length) {
-        currentListLength.value = cachedList.length
-        return
-      }
-      const list = await getListMusics(listId)
-      if (listId != props.listId) return
-      currentListLength.value = list.length
-    }
-
-    const canPlayCurrentList = computed(() => {
-      return !!props.listId && !fetchingListStatus[props.listId] && currentListLength.value > 0
-    })
-
-    const handlePlayCurrentList = async() => {
-      if (!props.listId || fetchingListStatus[props.listId]) return
-      let list = getListMusicsFromCache(props.listId)
-      if (!list.length) list = await getListMusics(props.listId)
-      currentListLength.value = list.length
-      if (!list.length) return
-      playList(props.listId, 0)
     }
 
     const handleListToggle = (id) => {
@@ -239,7 +204,6 @@ export default {
 
     watch(() => props.listId, (listId) => {
       saveListPrevSelectId(listId)
-      void syncCurrentListLength(listId)
     }, {
       immediate: true,
     })
@@ -252,17 +216,6 @@ export default {
           id: defaultList.id,
         },
       })
-    })
-
-    const handleMyListUpdate = (ids) => {
-      if (!ids.includes(props.listId)) return
-      void syncCurrentListLength(props.listId)
-    }
-
-    window.app_event.on('myListUpdate', handleMyListUpdate)
-
-    onBeforeUnmount(() => {
-      window.app_event.off('myListUpdate', handleMyListUpdate)
     })
 
     return {
@@ -287,12 +240,9 @@ export default {
       menus,
       menuLocation,
       handleListToggle,
-      canPlayCurrentList,
-      handlePlayCurrentList,
       isModDown,
-      hideMenu: handleMenuClick,
+      hideMenu,
       ListPlus,
-      Play,
       RefreshCw,
       ChevronRight,
     }
@@ -376,17 +326,6 @@ export default {
   &[disabled] {
     cursor: default;
     opacity: .18 !important;
-  }
-}
-
-.listsPlayBtn {
-  color: var(--color-primary);
-  background: rgba(198, 47, 47, 0.08);
-  opacity: .88;
-
-  &:hover:not([disabled]) {
-    background: rgba(198, 47, 47, 0.14);
-    opacity: 1 !important;
   }
 }
 

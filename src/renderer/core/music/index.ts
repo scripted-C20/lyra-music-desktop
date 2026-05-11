@@ -4,19 +4,23 @@
 
 import {
   getMusicUrl as getOnlineMusicUrl,
+  createGetMusicUrlTask as createOnlineGetMusicUrlTask,
   getPicUrl as getOnlinePicUrl,
   getLyricInfo as getOnlineLyricInfo,
 } from './online'
 import {
   getMusicUrl as getDownloadMusicUrl,
+  createGetMusicUrlTask as createDownloadGetMusicUrlTask,
   getPicUrl as getDownloadPicUrl,
   getLyricInfo as getDownloadLyricInfo,
 } from './download'
 import {
   getMusicUrl as getLocalMusicUrl,
+  createGetMusicUrlTask as createLocalGetMusicUrlTask,
   getPicUrl as getLocalPicUrl,
   getLyricInfo as getLocalLyricInfo,
 } from './local'
+import { type CancelableTask, type MusicUrlTaskOptions } from './utils'
 
 
 export const getMusicUrl = async({
@@ -25,19 +29,45 @@ export const getMusicUrl = async({
   isRefresh = false,
   onToggleSource,
   allowToggleSource,
+  taskOptions,
 }: {
   musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
   isRefresh?: boolean
   quality?: LX.Quality
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
+  taskOptions?: MusicUrlTaskOptions
 }): Promise<string> => {
   if ('progress' in musicInfo) {
-    return getDownloadMusicUrl({ musicInfo, isRefresh, onToggleSource, allowToggleSource })
+    return getDownloadMusicUrl({ musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
   } else if (musicInfo.source == 'local') {
-    return getLocalMusicUrl({ musicInfo, isRefresh, onToggleSource, allowToggleSource })
+    return getLocalMusicUrl({ musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
   } else {
-    return getOnlineMusicUrl({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource })
+    return getOnlineMusicUrl({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource, taskOptions })
+  }
+}
+
+export const createGetMusicUrlTask = ({
+  musicInfo,
+  quality,
+  isRefresh = false,
+  onToggleSource,
+  allowToggleSource,
+  taskOptions,
+}: {
+  musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
+  isRefresh?: boolean
+  quality?: LX.Quality
+  onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  allowToggleSource?: boolean
+  taskOptions?: MusicUrlTaskOptions
+}): CancelableTask<string> => {
+  if ('progress' in musicInfo) {
+    return createDownloadGetMusicUrlTask({ musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
+  } else if (musicInfo.source == 'local') {
+    return createLocalGetMusicUrlTask({ musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
+  } else {
+    return createOnlineGetMusicUrlTask({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource, taskOptions })
   }
 }
 

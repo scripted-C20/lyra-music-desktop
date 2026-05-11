@@ -34,6 +34,11 @@ declare global {
       'common.apiSource': string
 
       /**
+       * 换源搜索超时秒数
+       */
+      'common.sourceSearchTimeout': number
+
+      /**
        * 音源名称类型，原名、别名
        */
       'common.sourceNameType': 'alias' | 'real'

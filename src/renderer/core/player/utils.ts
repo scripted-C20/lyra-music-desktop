@@ -1,4 +1,5 @@
 import { toRaw, markRawList } from '@common/utils/vueTools'
+import { getSourceSearchTimeoutMs, getSourceSearchTimeoutWithBufferMs, normalizeSourceSearchTimeout } from '@common/constants'
 // import { qualityList } from '@renderer/store'
 import { clearPlayedList } from '@renderer/store/player/action'
 import { appSetting } from '@renderer/store/setting'
@@ -61,5 +62,19 @@ export const setPowerSaveBlocker = (enabled: boolean, force = false) => {
     timeout = setTimeout(() => {
       setPowerSaveBlockerRemote(false)
     }, 60_000 * 1.5)
+  }
+}
+
+export const getSourceSearchTimeoutSeconds = () => {
+  return normalizeSourceSearchTimeout(appSetting['common.sourceSearchTimeout'])
+}
+
+export const getPlaybackMusicUrlTaskOptions = (overrides: {
+  skipUserApiVerify?: boolean
+} = {}) => {
+  return {
+    urlTimeout: getSourceSearchTimeoutWithBufferMs(appSetting['common.sourceSearchTimeout']),
+    otherSourceTimeout: getSourceSearchTimeoutMs(appSetting['common.sourceSearchTimeout']),
+    skipUserApiVerify: !!overrides.skipUserApiVerify,
   }
 }

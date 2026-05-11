@@ -40,6 +40,8 @@
         :limit="listDetailInfo.limit"
         :total="listDetailInfo.total"
         :list="listDetailInfo.list"
+        :current-list-id="currentListId"
+        enable-search-bar
         :no-item="listDetailInfo.noItemLabel"
         @play-list="handlePlayList"
         @toggle-page="togglePage"
@@ -49,7 +51,7 @@
 </template>
 
 <script lang="ts">
-import { ref, watch } from '@common/utils/vueTools'
+import { computed, ref, watch } from '@common/utils/vueTools'
 import { listDetailInfo } from '@renderer/store/songList/state'
 import { setVisibleListDetail } from '@renderer/store/songList/action'
 import { useRouter } from '@common/utils/vueRouter'
@@ -103,6 +105,7 @@ const verifyQueryParams = async function(this: any, to: { query: Query, path: st
   setVisibleListDetail(true)
   source.value = _source as LX.OnlineSource
   id.value = _id
+  window.lx.songListInfo.currentDetailId = _id
   page.value = _page ? parseInt(_page) : 1
   picUrl.value = _picUrl ?? ''
   refresh.value = _refresh ? _refresh == 'true' : false
@@ -115,6 +118,7 @@ export default {
   beforeRouteUpdate: verifyQueryParams,
   setup() {
     const router = useRouter()
+    const currentListId = computed(() => source.value && id.value ? `${source.value}__${id.value}` : '')
 
     const {
       listRef,
@@ -154,6 +158,7 @@ export default {
       page,
       picUrl,
       listDetailInfo,
+      currentListId,
       listRef,
       togglePage,
       addSongListDetail,

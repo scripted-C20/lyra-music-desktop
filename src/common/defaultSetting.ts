@@ -1,5 +1,6 @@
 import path from 'node:path'
 import os from 'node:os'
+import { SOURCE_SEARCH_TIMEOUT } from './constants'
 
 const isMac = process.platform == 'darwin'
 const isWin = process.platform == 'win32'
@@ -12,6 +13,7 @@ const defaultSetting: LX.AppSetting = {
   'common.startInFullscreen': false,
   'common.langId': null,
   'common.apiSource': 'temp',
+  'common.sourceSearchTimeout': SOURCE_SEARCH_TIMEOUT.DEFAULT,
   'common.sourceNameType': 'alias',
   'common.font': '',
   'common.isShowAnimation': true,

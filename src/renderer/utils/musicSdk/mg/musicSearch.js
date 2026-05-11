@@ -122,7 +122,8 @@ export default {
         'User-Agent': 'Mozilla/5.0 (Linux; U; Android 11.0.0; zh-cn; MI 11 Build/OPR1.170623.032) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30',
       },
     })
-    return searchRequest.promise.then(({ body }) => body)
+    searchRequest.promise = searchRequest.promise.then(({ body }) => body)
+    return searchRequest
   },
   filterData(rawData) {
     // console.log(rawData)
@@ -195,17 +196,32 @@ export default {
     })
     return list
   },
-  search(str, page = 1, limit, retryNum = 0) {
+  search(str, page = 1, limit, retryNum = 0, taskInfo = null) {
+    if (!taskInfo) {
+      taskInfo = {
+        cancelled: false,
+        cancel: () => {},
+      }
+      const promise = this.search(str, page, limit, retryNum, taskInfo)
+      promise.cancelHttp = () => {
+        if (taskInfo.cancelled) return
+        taskInfo.cancelled = true
+        taskInfo.cancel()
+      }
+      return promise
+    }
+    if (taskInfo.cancelled) return Promise.reject(new Error('Cancel request'))
     if (++retryNum > 3) return Promise.reject(new Error('try max num'))
     if (limit == null) limit = this.limit
-    // http://newlyric.kuwo.cn/newlyric.lrc?62355680
-    return this.musicSearch(str, page, limit).then(result => {
-      // console.log(result)
+    const requestObj = this.musicSearch(str, page, limit)
+    taskInfo.cancel = typeof requestObj.cancelHttp == 'function' ? requestObj.cancelHttp.bind(requestObj) : () => {}
+    return requestObj.promise.then(result => {
+      if (taskInfo.cancelled) throw new Error('Cancel request')
       if (!result || result.code !== '000000') return Promise.reject(new Error(result ? result.info : '搜索失败'))
       const songResultData = result.songResultData || { resultList: [], totalCount: 0 }
 
       let list = this.filterData(songResultData.resultList)
-      if (list == null) return this.search(str, page, limit, retryNum)
+      if (list == null) return this.search(str, page, limit, retryNum, taskInfo)
 
       this.total = parseInt(songResultData.totalCount)
       this.page = page

@@ -3,11 +3,14 @@ import { useRoute, useRouter } from '@common/utils/vueRouter'
 import { setListPosition, getListPosition } from '@renderer/utils/data'
 import { appSetting } from '@renderer/store/setting'
 
-export default ({ props, listRef, list, handleRestoreScroll }) => {
+export default ({ props, listRef, list, handleRestoreScroll, shouldSavePosition }) => {
   const route = useRoute()
   const router = useRouter()
 
+  const canSavePosition = () => typeof shouldSavePosition != 'function' || shouldSavePosition()
+
   const saveListPosition = () => {
+    if (!canSavePosition()) return
     setListPosition(props.listId, listRef.value?.getScrollTop() || 0)
   }
 

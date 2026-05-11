@@ -1,56 +1,221 @@
 <template lang="pug">
-material-modal(:show="modelValue" bg-close teleport="#view" width="min(704px, calc(100vw - 64px))" max-width="704px" max-height="82%" @close="handleClose")
-  main.scroll(:class="$style.main")
-    div(:class="$style.header")
-      div(:class="$style.titleMark") API
-      div(:class="$style.titleText")
-        h2 {{ $t('user_api__title') }}
-        span(v-if="apiList.length" :class="$style.count") {{ apiList.length }}
-    ul.scroll(v-if="apiList.length" :class="$style.content")
-      li(v-for="(api, index) in apiList" :key="api.id" :class="[$style.listItem, {[$style.active]: appSetting['common.apiSource'] == api.id}]" @click="handleSelectSource(api)")
-        span(:class="$style.activeDot" aria-hidden="true")
-        div(:class="$style.cardLeft")
-          div(:class="$style.cardHeader")
-            h3 {{ api.name }}
-            span(v-if="api.version" :class="$style.version") {{ /^\d/.test(api.version) ? `v${api.version}` : api.version }}
-          div(:class="$style.cardMeta")
-            span(v-if="api.author" :class="$style.author") {{ api.author }}
-            span(v-if="api.description" :class="$style.desc") {{ api.description }}
-          div(:class="$style.checkboxRow" @click.stop)
-            base-checkbox(:id="`user_api_${api.id}`" :model-value="api.allowShowUpdateAlert === true" :class="$style.checkbox" :label="$t('user_api__allow_show_update_alert')" @update:model-value="handleChangeAllowUpdateAlert(api, $event)")
-        div(:class="$style.cardRight")
-          base-btn(:class="$style.removeBtn" outline :aria-label="$t('user_api__btn_remove')" @click.stop="handleRemove(index)")
-            app-icon(name="delete" :size="16")
-    div(v-else :class="$style.content")
-      div(:class="$style.noitem")
-        span(:class="$style.noitemIcon") API
-        span {{ $t('user_api__noitem') }}
-    div(:class="$style.note")
-      p(:class="$style.ruleLink")
-        | {{ $t('user_api__readme') }}
-        span.hover.underline(aria-label="https://lxmusic.toside.cn/desktop/custom-source" @click="handleOpenUrl('https://lyswhut.github.io/lx-music-doc/desktop/custom-source')") FAQ
-      p {{ $t('user_api__note') }}
-    div(:class="$style.footer")
-      base-btn(:class="[$style.footerBtn, $style.primaryBtn]" @click="isShowOnlineImportModal = true") {{ $t('user_api__btn_import_online') }}
-      base-btn(:class="$style.footerBtn" @click="handleImport") {{ $t('user_api__btn_import') }}
-      base-btn(:class="$style.footerBtn" @click="isShowSubscribeImportModal = true") {{ $t('user_api__btn_import_subscribe') }}
-      base-btn(v-if="apiList.length" :class="[$style.footerBtn, $style.dangerBtn]" @click="handleRemoveAll") {{ $t('user_api__btn_remove_all') }}
-    UserApiOnlineImportModal(v-model:show="isShowOnlineImportModal" @import="importUserApi")
-    UserApiSubscribeImportModal(v-model:show="isShowSubscribeImportModal" @imported="handleSubscribeImported")
+  material-modal(:show="modelValue" :bg-close="false" :close-btn="false" teleport="#view" width="min(704px, calc(100vw - 64px))" max-width="704px" max-height="82%" @close="handleClose")
+    main(:class="$style.main")
+      div(:class="$style.header")
+        div(:class="$style.titleMark") API
+        div(:class="$style.titleText")
+          h2 {{ $t('user_api__title') }}
+          span(v-if="apiList.length" :class="$style.count") {{ apiList.length }}
+        div(:class="$style.headerActions")
+          base-btn(
+            min
+            :class="$style.headerBtn"
+            :disabled="isBatchTestButtonDisabled()"
+            @click="handleTestAllLatency"
+          ) {{ getBatchTestButtonText() }}
+          button(type="button" :class="$style.headerCloseBtn" :aria-label="$t('close')" @click="handleClose")
+            line-icon(:icon="X" :size="18" :stroke-width="2.2")
+      div(v-if="apiList.length" :class="$style.toolbar")
+        div(v-if="showCategoryTabs" :class="$style.toolbarRow")
+          div(:class="$style.toolbarRowTrack")
+            div(:class="$style.categoryGroup")
+              base-btn(
+                v-for="category in categoryList"
+                :key="category.key"
+                min
+                :class="[$style.toolbarBtn, {[$style.toolbarBtn_active]: categoryKey === category.key}]"
+                :title="getCategoryButtonText(category)"
+                @click="handleSelectCategory(category.key)"
+              ) {{ getCategoryButtonText(category) }}
+        div(:class="[$style.toolbarRow, $style.toolbarRowSecondary]")
+          div(:class="$style.toolbarRowTrack")
+            div(:class="$style.filterGroup")
+              base-btn(min :class="[$style.toolbarBtn, {[$style.toolbarBtn_active]: resultFilter === 'all'}]" @click="resultFilter = 'all'") {{ $t('user_api__filter_all') }}
+              base-btn(min :class="[$style.toolbarBtn, {[$style.toolbarBtn_active]: resultFilter === 'success'}]" @click="resultFilter = 'success'") {{ $t('user_api__filter_success') }}
+              base-btn(min :class="[$style.toolbarBtn, {[$style.toolbarBtn_active]: resultFilter === 'error'}]" @click="resultFilter = 'error'") {{ $t('user_api__filter_failed') }}
+              base-btn(min :class="[$style.toolbarBtn, {[$style.toolbarBtn_active]: resultFilter === 'untested'}]" @click="resultFilter = 'untested'") {{ $t('user_api__filter_untested') }}
+              base-btn(min :class="[$style.toolbarBtn, {[$style.toolbarBtn_active]: resultFilter === 'selected'}]" @click="resultFilter = 'selected'") {{ $t('user_api__filter_selected') }}
+            div(:class="$style.selectGroup")
+              base-btn(min :class="$style.toolbarBtn" :disabled="isBusy || !displayApiList.length" @click="selectDisplayedApis") {{ $t('user_api__btn_select_filtered') }}
+              base-btn(min :class="$style.toolbarBtn" :disabled="isBusy || !selectedCount" @click="clearSelectedApis") {{ $t('user_api__btn_clear_selected') }}
+              span(:class="$style.selectedCount") {{ $t('user_api__selected_count', { count: selectedCount }) }}
+            base-btn(
+              min
+              :class="[$style.toolbarBtn, $style.toolbarActionBtn, isResubscribing ? $style.toolbarBtnLoading : null]"
+              :disabled="isBusy || !activeSubscribeCategory?.subscribeUrl"
+              @click="handleResubscribe"
+            )
+              line-icon(:icon="isResubscribing ? LoaderCircle : RefreshCw" :size="14" :class="isResubscribing ? $style.spinningIcon : null")
+              span {{ getResubscribeButtonText() }}
+      ul.scroll(v-if="displayApiList.length" :class="$style.content")
+        li(v-for="api in displayApiList" :key="api.id" :class="[$style.listItem, {[$style.active]: appSetting['common.apiSource'] == api.id}]" @click="handleSelectSource(api)")
+          span(:class="$style.activeDot" aria-hidden="true")
+          div(:class="$style.cardLeft")
+            div(:class="$style.cardHeader")
+              h3 {{ api.name }}
+              span(:class="[$style.categoryTag, {[$style.categoryTag_subscribe]: getApiOrigin(api).type === 'subscribe'}]" :title="getApiCategoryLabel(api)") {{ getApiCategoryLabel(api) }}
+              span(v-if="api.version" :class="$style.version") {{ /^\d/.test(api.version) ? `v${api.version}` : api.version }}
+            div(:class="$style.cardMeta")
+              span(v-if="api.author" :class="$style.author") {{ api.author }}
+              span(v-if="api.description" :class="$style.desc") {{ api.description }}
+            div(v-if="getApiSourceList(api).length" :class="$style.sourceRow")
+              span(v-for="source in getApiSourceList(api)" :key="source" :class="$style.sourceTag") {{ getSourceDisplayName(source) }}
+            div(:class="$style.checkboxRow" @click.stop)
+              base-checkbox(:id="`user_api_${api.id}`" :model-value="api.allowShowUpdateAlert === true" :class="$style.checkbox" :label="$t('user_api__allow_show_update_alert')" @update:model-value="handleChangeAllowUpdateAlert(api, $event)")
+            div(:class="$style.testRow" @click.stop)
+              base-btn(
+                min
+                :class="$style.testBtn"
+                :disabled="isTestButtonDisabled(api.id)"
+                @click.stop="handleTestLatency(api)"
+              ) {{ getTestButtonText(api.id) }}
+              span(v-if="getDisplayTestState(api.id)" :class="[$style.testStatus, $style[`testStatus_${getDisplayTestState(api.id).status}`]]") {{ getTestSummary(api.id) }}
+            p(v-if="getTestDetail(api.id)" :class="$style.testDetail") {{ getTestDetail(api.id) }}
+          div(:class="$style.cardRight")
+            base-btn(min :class="[$style.selectBtn, {[$style.selectBtn_active]: isApiSelected(api.id)}]" :disabled="isBusy" @click.stop="toggleApiSelected(api.id)")
+              | {{ isApiSelected(api.id) ? $t('user_api__btn_selected') : $t('user_api__btn_select') }}
+            base-btn(:class="$style.removeBtn" outline :disabled="isRemoveButtonDisabled()" :aria-label="$t('user_api__btn_remove')" @click.stop="handleRemove(api)")
+              app-icon(name="delete" :size="16")
+      div(v-else :class="$style.content")
+        div(:class="$style.noitem")
+          span(:class="$style.noitemIcon") API
+          span {{ getEmptyText() }}
+      div(:class="$style.note")
+        div(:class="$style.noteTrack")
+          div(:class="$style.docItem")
+            button(type="button" :class="$style.docLink" @click="handleOpenUrl(USER_API_README_URL)")
+              span {{ $t('user_api__doc_readme') }}
+              line-icon(:icon="ExternalLink" :size="14")
+          div(:class="$style.docItem")
+            button(type="button" :class="$style.docLink" @click="handleOpenUrl(USER_API_FAQ_URL)")
+              span {{ $t('user_api__doc_faq') }}
+              line-icon(:icon="ExternalLink" :size="14")
+          button(type="button" :class="$style.noteInfoBtn" :aria-label="$t('user_api__doc_test_latency')" :title="$t('user_api__test_latency_note')" @click="handleShowTip('user_api__test_latency_note')")
+            span {{ $t('user_api__doc_test_latency') }}
+            line-icon(:icon="CircleHelp" :size="14" :stroke-width="2.2")
+      div(:class="$style.footer")
+        base-btn(:class="[$style.footerBtn, $style.primaryBtn]" :disabled="isBusy" @click="isShowOnlineImportModal = true") {{ $t('user_api__btn_import_online') }}
+        base-btn(:class="$style.footerBtn" :disabled="isBusy" @click="handleImport") {{ $t('user_api__btn_import') }}
+        base-btn(:class="$style.footerBtn" :disabled="isBusy || !selectedCount" @click="handleExport") {{ $t('user_api__btn_export_selected') }}
+        base-btn(:class="$style.footerBtn" :disabled="isBusy" @click="isShowSubscribeImportModal = true") {{ $t('user_api__btn_import_subscribe') }}
+        base-btn(v-if="apiList.length" :class="[$style.footerBtn, $style.dangerBtn]" :disabled="isRemoveButtonDisabled()" @click="handleRemoveAction") {{ getRemoveActionText() }}
+      UserApiOnlineImportModal(v-model:show="isShowOnlineImportModal" @import="importUserApi")
+      UserApiSubscribeImportModal(v-model:show="isShowSubscribeImportModal" @imported="handleSubscribeImported")
 </template>
 
 <script>
-import { importUserApi, removeUserApi, showSelectDialog, setAllowShowUserApiUpdateAlert, getUserApiList, setUserApi } from '@renderer/utils/ipc'
-import { readFile } from '@common/utils/nodejs'
+import { exportUserApi, importUserApi as importUserApiAction, openSaveDir, removeUserApi, showSelectDialog, setAllowShowUserApiUpdateAlert, getUserApiList, testUserApiLatency, cancelUserApiLatencyTest } from '@renderer/utils/ipc'
+import { getSourceSearchTimeoutMs } from '@common/constants'
+import { gzipData, readFile, saveStrToFile } from '@common/utils/nodejs'
 import { openUrl } from '@common/utils/electron'
-import apiSourceInfo from '@renderer/utils/musicSdk/api-source-info'
-import { userApi } from '@renderer/store'
-import { appSetting, updateSetting } from '@renderer/store/setting'
+import { sourceNames, userApi } from '@renderer/store'
+import { appSetting, mergeSetting, updateSetting } from '@renderer/store/setting'
 import { computed, ref } from '@common/utils/vueTools'
 import { dialog } from '@renderer/plugins/Dialog'
+import musicSdk from '@renderer/utils/musicSdk'
+import { builtinOnlineSourceIds, getBuiltinFallbackSourceId } from '@renderer/utils/musicSdk/source-fallback'
+import { toNewMusicInfo } from '@renderer/utils'
+import { requestMsg } from '@renderer/utils/message'
+import { httpFetch } from '@renderer/utils/request'
+import { createVerifyPlayableUrlTask as createPlayableUrlVerifyTask } from '@renderer/utils/verifyPlayableUrl'
+import { CircleHelp, ExternalLink, LoaderCircle, RefreshCw, X } from 'lucide-vue-next'
 
 import UserApiOnlineImportModal from './UserApiOnlineImportModal.vue'
 import UserApiSubscribeImportModal from './UserApiSubscribeImportModal.vue'
+
+const TEST_SOURCE_ORDER = builtinOnlineSourceIds
+const TEST_SEARCH_KEYWORDS = [
+  '稻香 周杰伦',
+  '晴天 周杰伦',
+  '夜曲 周杰伦',
+  '七里香 周杰伦',
+  '青花瓷 周杰伦',
+  '起风了 买辣椒也用券',
+  '后来 刘若英',
+  '演员 薛之谦',
+  '孤勇者 陈奕迅',
+  '光年之外 邓紫棋',
+  '泡沫 邓紫棋',
+  '红豆 王菲',
+  '烟花易冷 周杰伦',
+  '兰亭序 周杰伦',
+  '告白气球 周杰伦',
+  '一路向北 周杰伦',
+  '搁浅 周杰伦',
+  '半岛铁盒 周杰伦',
+  '明明就 周杰伦',
+  '倒带 蔡依林',
+  '青藏高原 韩红',
+  '后来 后来 刘若英',
+  '成全 刘若英',
+  '如愿 王菲',
+  '匆匆那年 王菲',
+  '小幸运 田馥甄',
+  '追光者 岑宁儿',
+]
+const TEST_SEARCH_RESULT_LIMIT = 20
+const MAX_TEST_SAMPLES_PER_SOURCE = 8
+const BATCH_TEST_CONCURRENCY = 5
+const USER_API_README_URL = 'https://lyswhut.github.io/lx-music-doc/desktop/custom-source'
+const USER_API_FAQ_URL = 'https://lyswhut.github.io/lx-music-doc/desktop/faq'
+const getSubscribeOriginFallbackName = (subscribeUrl) => {
+  if (!subscribeUrl) return ''
+  try {
+    const hostname = new URL(subscribeUrl).hostname.replace(/^www\./, '')
+    return hostname || ''
+  } catch {
+    return ''
+  }
+}
+
+const selectTestMusics = result => {
+  const list = result?.list
+  if (!Array.isArray(list)) return []
+  return list
+    .filter(item => item?.name && item?._types && Object.keys(item._types).length)
+    .map(item => toNewMusicInfo(item))
+}
+const getLatencyTestSampleKey = musicInfo => `${musicInfo.source}_${musicInfo.id}`
+const cloneLatencyTestSamples = samples => Object.fromEntries(Object.entries(samples ?? {}).map(([source, value]) => {
+  const list = Array.isArray(value) ? [...value] : value ? [value] : []
+  return [source, list]
+}).filter(([, list]) => list.length))
+const hasLatencyTestSamples = samples => Object.values(samples ?? {}).some(value => Array.isArray(value) ? value.length : !!value)
+const removeLatencyTestSample = (samples, source, musicInfo) => {
+  const nextSamples = cloneLatencyTestSamples(samples)
+  const sampleList = nextSamples[source]
+  if (!Array.isArray(sampleList) || !musicInfo) return nextSamples
+  const sampleKey = getLatencyTestSampleKey(musicInfo)
+  const nextList = sampleList.filter(item => getLatencyTestSampleKey(item) !== sampleKey)
+  nextSamples[source] = nextList
+  return nextSamples
+}
+const normalizeExportFileName = name => name.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'user_api'
+const formatSeconds = ms => {
+  const seconds = Math.max(0, ms) / 1000
+  const fixed = seconds >= 10 ? seconds.toFixed(1) : seconds.toFixed(2)
+  return fixed.replace(/\.0$/, '').replace(/(\.\d*[1-9])0$/, '$1')
+}
+const STRICT_PLAY_TEST_MIN_TIMEOUT = 15_000
+const STRICT_PLAY_TEST_MIN_PROGRESS = 0.15
+const STRICT_PLAY_TEST_MIN_PLAY_TIME = 800
+const STRICT_PLAY_TEST_TIMEOUT_BUFFER = 5_000
+const STOPPING_LATENCY_TEST_MESSAGE = '停止中...'
+const STOP_LATENCY_TEST_BUTTON_TEXT = '停止测试'
+const LATENCY_TEST_CANCEL_MESSAGE = 'Cancel request'
+const BATCH_SAMPLE_PREPARE_KEY = '__batch__'
+const createLatencyTestCancelError = () => new Error(LATENCY_TEST_CANCEL_MESSAGE)
+const getStrictPlayTestVerifyTimeout = sourceSearchTimeout => {
+  return Math.max(STRICT_PLAY_TEST_MIN_TIMEOUT, getSourceSearchTimeoutMs(sourceSearchTimeout) + STRICT_PLAY_TEST_TIMEOUT_BUFFER)
+}
+const createVerifyPlayableUrlTask = (url, timeout) => createPlayableUrlVerifyTask(url, {
+  timeout,
+  minProgress: STRICT_PLAY_TEST_MIN_PROGRESS,
+  minPlayTime: STRICT_PLAY_TEST_MIN_PLAY_TIME,
+  failedMessage: 'play verify failed',
+  timeoutMessage: 'play verify timeout',
+  cancelMessage: LATENCY_TEST_CANCEL_MESSAGE,
+})
 
 export default {
   components: {
@@ -72,14 +237,114 @@ export default {
     return {
       userApi,
       apiList,
+      sourceNames,
       appSetting,
       isShowOnlineImportModal,
       isShowSubscribeImportModal,
+      USER_API_README_URL,
+      USER_API_FAQ_URL,
+      CircleHelp,
+      ExternalLink,
+      LoaderCircle,
+      RefreshCw,
+      X,
     }
+  },
+  data() {
+    return {
+      testStates: {},
+      activeTestApiIds: [],
+      preparingTestApiIds: [],
+      pendingStopTestApiIds: [],
+      isPreparingSamples: false,
+      isBatchTesting: false,
+      isBatchStopRequested: false,
+      isExporting: false,
+      isResubscribing: false,
+      resultFilter: 'all',
+      categoryKey: 'local',
+      selectedApiIds: [],
+      removedDuringBatchApiIds: [],
+      queuedBatchTestApiIds: [],
+      batchTestProgress: {
+        current: 0,
+        total: 0,
+      },
+      latencyTestSamples: null,
+      latencyTestSamplesPromise: null,
+      samplePrepareWaiters: {},
+      verifyTasks: {},
+    }
+  },
+  computed: {
+    isBusy() {
+      return this.isPreparingSamples ||
+        this.isBatchTesting ||
+        !!this.activeTestApiIds.length ||
+        !!this.preparingTestApiIds.length ||
+        !!this.pendingStopTestApiIds.length ||
+        this.isExporting ||
+        this.isResubscribing
+    },
+    selectedCount() {
+      return this.apiList.filter(api => this.selectedApiIds.includes(api.id)).length
+    },
+    categoryList() {
+      const categories = [{
+        key: 'local',
+        label: this.$t('user_api__category_local'),
+        count: 0,
+        type: 'local',
+      }]
+      const subscribeMap = new Map()
+      for (const api of this.apiList) {
+        const origin = this.getApiOrigin(api)
+        if (origin.type !== 'subscribe') {
+          categories[0].count++
+          continue
+        }
+        const key = this.getSubscribeCategoryKey(origin)
+        if (!subscribeMap.has(key)) {
+          const subscribeName = this.getSubscribeOriginName(origin)
+          subscribeMap.set(key, {
+            key,
+            label: subscribeName,
+            count: 0,
+            type: 'subscribe',
+            subscribeName,
+            subscribeUrl: origin.subscribeUrl,
+          })
+        }
+        subscribeMap.get(key).count++
+      }
+      return categories.concat(Array.from(subscribeMap.values()))
+    },
+    activeSubscribeCategory() {
+      const category = this.categoryList.find(item => item.key === this.categoryKey)
+      return category?.type === 'subscribe' ? category : null
+    },
+    showCategoryTabs() {
+      return this.categoryList.length > 0
+    },
+    displayApiList() {
+      return this.apiList.filter(api => this.matchCategoryFilter(api) && this.matchResultFilter(api))
+    },
+  },
+  watch: {
+    apiList() {
+      if (!this.categoryList.some(category => category.key === this.categoryKey)) this.categoryKey = 'local'
+    },
+    modelValue(value) {
+      if (value) return
+      this.cleanupBeforeClose()
+    },
+  },
+  beforeUnmount() {
+    this.cleanupBeforeClose()
   },
   methods: {
     async importUserApi(script) {
-      return importUserApi(script).then(({ apiList }) => {
+      return importUserApiAction(script).then(({ apiList }) => {
         userApi.list = apiList
       }).catch((err) => {
         void dialog(this.$t('user_api_import__failed', { message: err.message }))
@@ -107,47 +372,357 @@ export default {
         })
       })
     },
-    handleExport() {
-
-    },
-    async handleRemove(index) {
-      const api = this.apiList[index]
-      if (!api) return
-      if (appSetting['common.apiSource'] == api.id) {
-        let backApi = apiSourceInfo.find(api => !api.disabled)
-        if (!backApi) backApi = userApi.list[0]
-        updateSetting({ 'common.apiSource': backApi?.id ?? '' })
+    async handleExport() {
+      if (!this.selectedCount) return
+      this.isExporting = true
+      try {
+        const exportItems = await exportUserApi(this.selectedApiIds)
+        if (!exportItems.length) throw new Error(this.$t('user_api__export_empty'))
+        const isSingle = exportItems.length === 1
+        const fileName = isSingle
+          ? `${normalizeExportFileName(exportItems[0].name)}.js.gz`
+          : `lx-music-user-api_${new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)}.json.gz`
+        const result = await openSaveDir({
+          title: this.$t('user_api__btn_export_selected'),
+          defaultPath: fileName,
+          filters: [
+            { name: 'Gzip Files', extensions: ['gz'] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        })
+        if (result.canceled || !result.filePath) return
+        const output = isSingle
+          ? await gzipData(exportItems[0].script)
+          : await gzipData(JSON.stringify({
+            type: 'lx_music_user_api_bundle',
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            apis: exportItems,
+          }, null, 2))
+        await saveStrToFile(result.filePath, output)
+        await dialog(this.$t('user_api__export_done', { count: exportItems.length }))
+      } catch (err) {
+        void dialog(err instanceof Error ? err.message : String(err))
+      } finally {
+        this.isExporting = false
       }
-      userApi.list = await removeUserApi([api.id])
     },
-    async handleRemoveAll() {
-      const count = this.apiList.length
+    removeTestState(apiId) {
+      const { [apiId]: _removedState, ...nextStates } = this.testStates
+      this.testStates = nextStates
+    },
+    isLatencyTestCancelError(error) {
+      return (error instanceof Error ? error.message : String(error)) === LATENCY_TEST_CANCEL_MESSAGE
+    },
+    isSamplePrepareStopRequested(waiterKey) {
+      if (!waiterKey) return false
+      if (waiterKey === BATCH_SAMPLE_PREPARE_KEY) return this.isBatchStopRequested
+      return this.isPendingStopTestApi(waiterKey) || !this.apiList.some(api => api.id === waiterKey)
+    },
+    throwIfLatencyTestStopped(apiId) {
+      if (this.isPendingStopTestApi(apiId)) throw createLatencyTestCancelError()
+      if (!this.apiList.some(api => api.id === apiId)) throw createLatencyTestCancelError()
+    },
+    setSamplePrepareWaiter(waiterKey, reject) {
+      this.samplePrepareWaiters = {
+        ...this.samplePrepareWaiters,
+        [waiterKey]: reject,
+      }
+    },
+    clearSamplePrepareWaiter(waiterKey, reject = null) {
+      if (reject && this.samplePrepareWaiters[waiterKey] !== reject) return
+      if (!this.samplePrepareWaiters[waiterKey]) return
+      const { [waiterKey]: _removedWaiter, ...nextWaiters } = this.samplePrepareWaiters
+      this.samplePrepareWaiters = nextWaiters
+    },
+    cancelSamplePrepareWaiter(waiterKey) {
+      const reject = this.samplePrepareWaiters[waiterKey]
+      if (!reject) return
+      this.clearSamplePrepareWaiter(waiterKey, reject)
+      reject(createLatencyTestCancelError())
+    },
+    cancelAllSamplePrepareWaiters() {
+      const waiters = Object.values(this.samplePrepareWaiters)
+      this.samplePrepareWaiters = {}
+      for (const reject of waiters) reject?.(createLatencyTestCancelError())
+    },
+    async waitForLatencyTestSamples(waiterKey = '') {
+      if (!waiterKey) return this.getLatencyTestSamples()
+      this.clearSamplePrepareWaiter(waiterKey)
+      let rejectWaiter = () => {}
+      const cancelPromise = new Promise((_resolve, reject) => {
+        rejectWaiter = reject
+      })
+      this.setSamplePrepareWaiter(waiterKey, rejectWaiter)
+      if (this.isSamplePrepareStopRequested(waiterKey)) this.cancelSamplePrepareWaiter(waiterKey)
+      return await Promise.race([
+        this.getLatencyTestSamples(),
+        cancelPromise,
+      ]).finally(() => {
+        this.clearSamplePrepareWaiter(waiterKey, rejectWaiter)
+      })
+    },
+    setVerifyTask(apiId, task) {
+      this.verifyTasks = {
+        ...this.verifyTasks,
+        [apiId]: task,
+      }
+    },
+    clearVerifyTask(apiId, task = null) {
+      if (task && this.verifyTasks[apiId] !== task) return
+      if (!this.verifyTasks[apiId]) return
+      const { [apiId]: _removedTask, ...nextTasks } = this.verifyTasks
+      this.verifyTasks = nextTasks
+    },
+    cancelVerifyTask(apiId) {
+      const task = this.verifyTasks[apiId]
+      if (!task) return
+      this.clearVerifyTask(apiId, task)
+      task.cancel()
+    },
+    cancelAllVerifyTasks() {
+      const tasks = Object.values(this.verifyTasks)
+      this.verifyTasks = {}
+      for (const task of tasks) task?.cancel?.()
+    },
+    toggleApiSelected(apiId) {
+      this.selectedApiIds = this.isApiSelected(apiId)
+        ? this.selectedApiIds.filter(id => id !== apiId)
+        : [...this.selectedApiIds, apiId]
+    },
+    clearSelectedApis() {
+      this.selectedApiIds = []
+    },
+    selectDisplayedApis() {
+      const ids = this.displayApiList.map(api => api.id)
+      this.selectedApiIds = Array.from(new Set([...this.selectedApiIds, ...ids]))
+    },
+    getSelectedApiIds() {
+      const currentIds = new Set(this.apiList.map(api => api.id))
+      return this.selectedApiIds.filter(id => currentIds.has(id))
+    },
+    getRemoveActionIds() {
+      const selectedIds = this.getSelectedApiIds()
+      return selectedIds.length ? selectedIds : this.apiList.map(api => api.id)
+    },
+    getRemoveActionText() {
+      return this.getSelectedApiIds().length
+        ? this.$t('user_api__btn_remove_selected')
+        : this.$t('user_api__btn_remove_all')
+    },
+    getApiOrigin(api) {
+      if (api?.origin?.type === 'subscribe' && (api.origin.subscribeName || api.origin.subscribeUrl)) return api.origin
+      return { type: 'local' }
+    },
+    getSubscribeOriginName(origin) {
+      return origin?.subscribeName?.trim() || getSubscribeOriginFallbackName(origin?.subscribeUrl) || this.$t('user_api__category_subscribe')
+    },
+    getSubscribeCategoryKey(target) {
+      const origin = target?.origin ? this.getApiOrigin(target) : target
+      if (origin?.type === 'subscribe') {
+        if (origin.subscribeUrl) return `subscribe:${origin.subscribeUrl}`
+        return `subscribe_name:${this.getSubscribeOriginName(origin)}`
+      }
+      return 'local'
+    },
+    getCategoryButtonText(category) {
+      return `${category.label} (${category.count})`
+    },
+    handleSelectCategory(categoryKey) {
+      this.categoryKey = categoryKey
+    },
+    matchCategoryFilter(api, categoryKey = this.categoryKey) {
+      if (categoryKey === 'local') return this.getApiOrigin(api).type !== 'subscribe'
+      return this.getSubscribeCategoryKey(api) === categoryKey
+    },
+    getApiCategoryLabel(api) {
+      const origin = this.getApiOrigin(api)
+      return origin.type === 'subscribe' ? this.getSubscribeOriginName(origin) : this.$t('user_api__category_local')
+    },
+    async switchSource(sourceId) {
+      if (!sourceId || appSetting['common.apiSource'] === sourceId) return
+      mergeSetting({ 'common.apiSource': sourceId })
+      updateSetting({ 'common.apiSource': sourceId })
+    },
+    getFallbackSourceId(excludeIds = []) {
+      const builtinId = getBuiltinFallbackSourceId(excludeIds)
+      if (builtinId && !excludeIds.includes(builtinId)) return builtinId
+      return this.apiList.find(api => !excludeIds.includes(api.id))?.id ?? ''
+    },
+    parseSubscribePayload(body) {
+      if (Array.isArray(body)) return body
+      if (typeof body === 'string') {
+        let data
+        try {
+          data = JSON.parse(body)
+        } catch {
+          throw new Error(this.$t('user_api_subscribe_import__invalid_json'))
+        }
+        if (Array.isArray(data)) return data
+      }
+      throw new Error(this.$t('user_api_subscribe_import__invalid_format'))
+    },
+    normalizeSubscribeSources(body) {
+      return this.parseSubscribePayload(body)
+        .filter(item => item?.name && item?.url)
+        .map(item => ({
+          name: item.name,
+          script: item.url,
+        }))
+    },
+    async fetchSubscribeSources(subscribeUrl) {
+      const resp = await httpFetch(subscribeUrl, { follow_max: 3 }).promise
+      return this.normalizeSubscribeSources(resp.body)
+    },
+    async fetchSubscribeScript(script) {
+      if (!/^https?:\/\//.test(script)) return script
+      const resp = await httpFetch(script, { follow_max: 3 }).promise
+      return resp.body
+    },
+    async handleShowTip(messageKey) {
+      await dialog(this.$t(messageKey))
+    },
+    async handleRemove(api) {
+      if (!api) return
+      if (this.isBatchTesting) this.markRemovedDuringBatchApi(api.id)
+      if (this.isApiTesting(api.id)) this.stopLatencyTest(api.id)
+      try {
+        if (appSetting['common.apiSource'] == api.id) {
+          const fallbackId = this.getFallbackSourceId([api.id])
+          if (fallbackId) await this.switchSource(fallbackId)
+        }
+        this.removeTestState(api.id)
+        this.selectedApiIds = this.selectedApiIds.filter(id => id !== api.id)
+        userApi.list = await removeUserApi([api.id])
+      } catch (err) {
+        await dialog(err instanceof Error ? err.message : String(err))
+      }
+    },
+    async handleRemoveAction() {
+      const ids = this.getRemoveActionIds()
+      const count = ids.length
       if (!count) return
+      const isRemoveSelected = count !== this.apiList.length
       void dialog({
-        message: this.$t('user_api__remove_all_confirm', { count }),
+        message: this.$t(isRemoveSelected ? 'user_api__remove_selected_confirm' : 'user_api__remove_all_confirm', { count }),
         confirmButtonText: this.$t('btn_confirm'),
         cancelButtonText: this.$t('btn_cancel'),
         showCancel: true,
       }).then(async confirmed => {
         if (!confirmed) return
-        const ids = this.apiList.map(a => a.id)
-        if (ids.some(id => id === appSetting['common.apiSource'])) {
-          const backApi = apiSourceInfo.find(api => !api.disabled)
-          updateSetting({ 'common.apiSource': backApi?.id ?? '' })
+        if (this.isBatchTesting) {
+          ids.forEach(id => {
+            this.markRemovedDuringBatchApi(id)
+          })
         }
-        userApi.list = await removeUserApi(ids)
+        ids.forEach(id => {
+          if (this.isApiTesting(id)) this.stopLatencyTest(id)
+        })
+        if (ids.some(id => id === appSetting['common.apiSource'])) {
+          const fallbackId = this.getFallbackSourceId(ids)
+          if (fallbackId) await this.switchSource(fallbackId)
+        }
+        for (const id of ids) this.removeTestState(id)
+        this.selectedApiIds = this.selectedApiIds.filter(id => !ids.includes(id))
+        try {
+          userApi.list = await removeUserApi(ids)
+        } catch (err) {
+          await dialog(err instanceof Error ? err.message : String(err))
+        }
       }).catch(() => {})
     },
     async handleSelectSource(api) {
+      if (this.isBusy) return
       if (appSetting['common.apiSource'] === api.id) return
-      await setUserApi(api.id)
-      updateSetting({ 'common.apiSource': api.id })
+      await this.switchSource(api.id)
     },
-    async handleSubscribeImported() {
+    async handleSubscribeImported(payload) {
       userApi.list = await getUserApiList()
+      if (payload?.subscribeUrl) this.categoryKey = `subscribe:${payload.subscribeUrl}`
+    },
+    async handleResubscribe() {
+      const activeCategory = this.activeSubscribeCategory
+      if (!activeCategory || this.isBusy) return
+      const confirmed = await dialog.confirm({
+        message: this.$t('user_api__resubscribe_confirm', { name: activeCategory.label }),
+        confirmButtonText: this.$t('btn_confirm'),
+        cancelButtonText: this.$t('btn_cancel'),
+      })
+      if (!confirmed) return
+      this.isResubscribing = true
+      try {
+        const subscribeSources = await this.fetchSubscribeSources(activeCategory.subscribeUrl)
+        if (!subscribeSources.length) throw new Error(this.$t('user_api_subscribe_import__empty'))
+        const nextImportList = []
+        let failCount = 0
+        for (const source of subscribeSources) {
+          try {
+            const script = await this.fetchSubscribeScript(source.script)
+            if (typeof script !== 'string' || script.length > 9_000_000) {
+              failCount++
+              continue
+            }
+            nextImportList.push({
+              script,
+              origin: {
+                type: 'subscribe',
+                subscribeName: activeCategory.subscribeName,
+                subscribeUrl: activeCategory.subscribeUrl,
+              },
+            })
+          } catch {
+            failCount++
+          }
+        }
+        if (!nextImportList.length) {
+          await dialog(this.$t('user_api__resubscribe_result', { success: 0, fail: subscribeSources.length }))
+          return
+        }
+        const currentCategoryKey = activeCategory.key
+        const currentCategoryApiIds = this.apiList
+          .filter(api => this.getSubscribeCategoryKey(api) === currentCategoryKey)
+          .map(api => api.id)
+        const shouldRestoreCurrent = currentCategoryApiIds.includes(appSetting['common.apiSource'])
+        if (shouldRestoreCurrent) {
+          const fallbackId = this.getFallbackSourceId(currentCategoryApiIds)
+          if (fallbackId) await this.switchSource(fallbackId)
+        }
+        this.testStates = Object.fromEntries(Object.entries(this.testStates).filter(([id]) => !currentCategoryApiIds.includes(id)))
+        this.selectedApiIds = this.selectedApiIds.filter(id => !currentCategoryApiIds.includes(id))
+        userApi.list = await removeUserApi(currentCategoryApiIds)
+
+        let successCount = 0
+        let firstImportedId = ''
+        for (const params of nextImportList) {
+          try {
+            const result = await importUserApiAction(params)
+            if (!firstImportedId && result.apiInfo?.id) firstImportedId = result.apiInfo.id
+            successCount++
+          } catch {
+            failCount++
+          }
+        }
+        userApi.list = await getUserApiList()
+        this.categoryKey = currentCategoryKey
+        if (shouldRestoreCurrent && firstImportedId) await this.switchSource(firstImportedId)
+        await dialog(this.$t('user_api__resubscribe_result', { success: successCount, fail: failCount }))
+      } catch (err) {
+        void dialog(err instanceof Error ? err.message : String(err))
+      } finally {
+        this.isResubscribing = false
+      }
     },
     handleClose() {
+      this.cleanupBeforeClose()
       this.$emit('update:modelValue', false)
+    },
+    cleanupBeforeClose() {
+      this.stopAllLatencyTests()
+      this.cancelAllSamplePrepareWaiters()
+      this.cancelAllVerifyTasks()
+      this.clearQueuedBatchTestApiIds()
+      this.isShowOnlineImportModal = false
+      this.isShowSubscribeImportModal = false
     },
     handleOpenUrl(url) {
       void openUrl(url)
@@ -155,6 +730,413 @@ export default {
     handleChangeAllowUpdateAlert(api, enable) {
       api.allowShowUpdateAlert = enable
       void setAllowShowUserApiUpdateAlert(api.id, enable)
+    },
+    getBatchTestButtonText() {
+      if (this.isBatchTesting) return `${STOP_LATENCY_TEST_BUTTON_TEXT} (${this.batchTestProgress.current}/${this.batchTestProgress.total})`
+      if (this.isPreparingSamples) return this.$t('user_api__test_latency_preparing')
+      return this.$t('user_api__btn_test_latency_all')
+    },
+    isBatchTestButtonDisabled() {
+      return !this.apiList.length || this.isExporting || this.isResubscribing || (!this.isBatchTesting && (this.isPreparingSamples || !!this.activeTestApiIds.length || !!this.preparingTestApiIds.length || !!this.pendingStopTestApiIds.length))
+    },
+    isTestButtonDisabled(apiId) {
+      return !this.isApiTesting(apiId) && this.isBusy
+    },
+    isRemoveButtonDisabled() {
+      return this.isExporting || this.isResubscribing
+    },
+    getBatchTestRunningText() {
+      return this.$t('user_api__btn_test_latency_running', {
+        current: this.batchTestProgress.current,
+        total: this.batchTestProgress.total,
+      })
+    },
+    getResubscribeButtonText() {
+      return this.isResubscribing
+        ? this.$t('user_api__btn_resubscribing')
+        : this.$t('user_api__btn_resubscribe')
+    },
+    getTestButtonText(apiId) {
+      return this.isApiTesting(apiId)
+        ? STOP_LATENCY_TEST_BUTTON_TEXT
+        : this.$t('user_api__btn_test_latency')
+    },
+    getTestSummary(apiId) {
+      const state = this.getDisplayTestState(apiId)
+      if (!state) return ''
+      switch (state.status) {
+        case 'success':
+          return `${formatSeconds(state.latency)} s`
+        case 'error':
+          return this.$t('user_api__test_latency_failed')
+        default:
+          return state.message
+      }
+    },
+    getTestDetail(apiId) {
+      const state = this.getDisplayTestState(apiId)
+      if (!state) return ''
+      if (state.status === 'success' && state.source && state.quality) {
+        return `${this.$t('user_api__test_latency_total', { total: `${formatSeconds(state.latency)}s` })} · ${this.$t('user_api__test_latency_detail', {
+          source: this.getSourceDisplayName(state.source),
+          quality: state.quality,
+          init: state.initLatency,
+          request: state.requestLatency,
+          verify: state.verifyLatency ?? 0,
+        })}`
+      }
+      if (state.status === 'error') return state.message
+      return ''
+    },
+    getEmptyText() {
+      return this.apiList.length ? this.$t('user_api__empty_filtered') : this.$t('user_api__noitem')
+    },
+    getApiTestStatus(apiId) {
+      return this.getDisplayTestState(apiId)?.status ?? 'untested'
+    },
+    isApiSelected(apiId) {
+      return this.selectedApiIds.includes(apiId)
+    },
+    matchResultFilter(api) {
+      switch (this.resultFilter) {
+        case 'success':
+          return this.getApiTestStatus(api.id) === 'success'
+        case 'error':
+          return this.getApiTestStatus(api.id) === 'error'
+        case 'untested':
+          return !this.getDisplayTestState(api.id)
+        case 'selected':
+          return this.isApiSelected(api.id)
+        default:
+          return true
+      }
+    },
+    getSourceDisplayName(source) {
+      return this.sourceNames[source] ?? source
+    },
+    getApiSourceList(api) {
+      if (!api.sources) return []
+      return Object.entries(api.sources)
+        .filter(([, info]) => info.type === 'music')
+        .map(([source]) => source)
+    },
+    setTestState(apiId, state) {
+      this.testStates = {
+        ...this.testStates,
+        [apiId]: state,
+      }
+    },
+    getDisplayTestState(apiId) {
+      if (this.queuedBatchTestApiIds.includes(apiId)) {
+        return {
+          status: 'loading',
+          message: this.$t('user_api__test_latency_preparing'),
+        }
+      }
+      return this.testStates[apiId]
+    },
+    addPreparingTestApiId(apiId) {
+      if (this.preparingTestApiIds.includes(apiId)) return
+      this.preparingTestApiIds = [...this.preparingTestApiIds, apiId]
+    },
+    removePreparingTestApiId(apiId) {
+      if (!this.preparingTestApiIds.includes(apiId)) return
+      this.preparingTestApiIds = this.preparingTestApiIds.filter(id => id !== apiId)
+    },
+    addPendingStopTestApiId(apiId) {
+      if (this.pendingStopTestApiIds.includes(apiId)) return
+      this.pendingStopTestApiIds = [...this.pendingStopTestApiIds, apiId]
+    },
+    removePendingStopTestApiId(apiId) {
+      if (!this.pendingStopTestApiIds.includes(apiId)) return
+      this.pendingStopTestApiIds = this.pendingStopTestApiIds.filter(id => id !== apiId)
+    },
+    isPendingStopTestApi(apiId) {
+      return this.pendingStopTestApiIds.includes(apiId)
+    },
+    isApiTesting(apiId) {
+      return this.activeTestApiIds.includes(apiId) || this.preparingTestApiIds.includes(apiId)
+    },
+    addActiveTestApiId(apiId) {
+      if (this.activeTestApiIds.includes(apiId)) return
+      this.activeTestApiIds = [...this.activeTestApiIds, apiId]
+    },
+    removeActiveTestApiId(apiId) {
+      if (!this.activeTestApiIds.includes(apiId)) return
+      this.activeTestApiIds = this.activeTestApiIds.filter(id => id !== apiId)
+    },
+    markRemovedDuringBatchApi(apiId) {
+      if (this.removedDuringBatchApiIds.includes(apiId)) return
+      this.removedDuringBatchApiIds = [...this.removedDuringBatchApiIds, apiId]
+    },
+    isRemovedDuringBatchApi(apiId) {
+      return this.removedDuringBatchApiIds.includes(apiId)
+    },
+    removeQueuedBatchTestApiId(apiId) {
+      if (!this.queuedBatchTestApiIds.includes(apiId)) return
+      this.queuedBatchTestApiIds = this.queuedBatchTestApiIds.filter(id => id !== apiId)
+    },
+    clearQueuedBatchTestApiIds() {
+      if (!this.queuedBatchTestApiIds.length) return
+      this.queuedBatchTestApiIds = []
+    },
+    stopLatencyTest(apiId) {
+      this.addPendingStopTestApiId(apiId)
+      this.setTestState(apiId, {
+        status: 'loading',
+        message: STOPPING_LATENCY_TEST_MESSAGE,
+      })
+      this.cancelSamplePrepareWaiter(apiId)
+      this.cancelVerifyTask(apiId)
+      if (this.activeTestApiIds.includes(apiId)) cancelUserApiLatencyTest(apiId)
+    },
+    stopAllLatencyTests() {
+      this.isBatchStopRequested = true
+      this.cancelSamplePrepareWaiter(BATCH_SAMPLE_PREPARE_KEY)
+      for (const apiId of new Set([...this.preparingTestApiIds, ...this.activeTestApiIds])) {
+        this.stopLatencyTest(apiId)
+      }
+    },
+    async findLatencyTestMusics(source) {
+      const sampleKeys = new Set()
+      const samples = []
+      for (const keyword of TEST_SEARCH_KEYWORDS) {
+        try {
+          const result = await musicSdk[source].musicSearch.search(keyword, 1, TEST_SEARCH_RESULT_LIMIT)
+          for (const musicInfo of selectTestMusics(result)) {
+            const sampleKey = getLatencyTestSampleKey(musicInfo)
+            if (sampleKeys.has(sampleKey)) continue
+            sampleKeys.add(sampleKey)
+            samples.push(musicInfo)
+            if (samples.length >= MAX_TEST_SAMPLES_PER_SOURCE) return samples
+          }
+        } catch {}
+      }
+      if (samples.length) return samples
+      throw new Error(`${this.getSourceDisplayName(source)} ${this.$t('user_api__test_latency_search_failed')}`)
+    },
+    async getLatencyTestSamples() {
+      if (this.latencyTestSamples) return this.latencyTestSamples
+      if (this.latencyTestSamplesPromise) return this.latencyTestSamplesPromise
+      this.isPreparingSamples = true
+      this.latencyTestSamplesPromise = Promise.all(TEST_SOURCE_ORDER.map(async source => {
+        try {
+          return [source, await this.findLatencyTestMusics(source)]
+        } catch {
+          return null
+        }
+      })).then((entries) => {
+        const samples = Object.fromEntries(entries.filter(Boolean))
+        if (!Object.keys(samples).length) throw new Error(this.$t('user_api__test_latency_search_failed'))
+        this.latencyTestSamples = samples
+        return samples
+      }).finally(() => {
+        this.isPreparingSamples = false
+        this.latencyTestSamplesPromise = null
+      })
+      return this.latencyTestSamplesPromise
+    },
+    normalizeLatencyResult(result) {
+      return {
+        ...result,
+        latency: Math.max(0, Math.trunc(result.latency)),
+        initLatency: Math.max(0, Math.trunc(result.initLatency)),
+        requestLatency: Math.max(0, Math.trunc(result.requestLatency)),
+        verifyLatency: Math.max(0, Math.trunc(result.verifyLatency ?? 0)),
+      }
+    },
+    normalizeLatencyTestErrorMessage(error) {
+      const rawMessage = error instanceof Error ? error.message : String(error)
+      const message = rawMessage
+        .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+        .replace(/^Error:\s*/i, '')
+      switch (message) {
+        case '当前源没有可自动测试的在线平台':
+          return this.$t('user_api__test_latency_no_source')
+        case 'api init timeout':
+          return this.$t('user_api__test_latency_init_timeout')
+        case 'api not found':
+          return this.$t('user_api__test_latency_source_missing')
+        case 'Request timeout':
+          return requestMsg.timeout
+        case 'Cancel request':
+          return requestMsg.cancelRequest
+        case 'play verify timeout':
+          return this.$t('user_api__test_latency_verify_timeout')
+        case 'play verify failed':
+          return this.$t('user_api__test_latency_verify_failed')
+        default:
+          return message
+      }
+    },
+    async runLatencyTest(api, samples) {
+      this.addActiveTestApiId(api.id)
+      this.setTestState(api.id, {
+        status: 'testing',
+        message: this.$t('user_api__test_latency_testing'),
+      })
+      try {
+        const startedAt = Date.now()
+        let remainingSamples = cloneLatencyTestSamples(samples)
+        let lastVerifyError = null
+
+        while (hasLatencyTestSamples(remainingSamples)) {
+          this.throwIfLatencyTestStopped(api.id)
+          const result = this.normalizeLatencyResult(await testUserApiLatency({
+            id: api.id,
+            samples: remainingSamples,
+          }))
+          this.throwIfLatencyTestStopped(api.id)
+          if (!result.url) throw new Error('未获取到有效播放链接')
+          void getUserApiList().then((list) => {
+            userApi.list = list
+          }).catch(() => {})
+          this.setTestState(api.id, {
+            ...result,
+            status: 'testing',
+            message: this.$t('user_api__test_latency_verifying'),
+          })
+
+          try {
+            this.throwIfLatencyTestStopped(api.id)
+            const verifyTask = createVerifyPlayableUrlTask(result.url, getStrictPlayTestVerifyTimeout(appSetting['common.sourceSearchTimeout']))
+            this.setVerifyTask(api.id, verifyTask)
+            const verifyLatency = await verifyTask.promise.finally(() => {
+              this.clearVerifyTask(api.id, verifyTask)
+            })
+            this.throwIfLatencyTestStopped(api.id)
+            const strictResult = this.normalizeLatencyResult({
+              ...result,
+              verifyLatency,
+              latency: Date.now() - startedAt,
+            })
+            this.setTestState(api.id, {
+              ...strictResult,
+              status: 'success',
+            })
+            return true
+          } catch (err) {
+            if (this.isLatencyTestCancelError(err)) throw err
+            lastVerifyError = err
+            if (!result.source || !result.musicInfo) throw err
+            remainingSamples = removeLatencyTestSample(remainingSamples, result.source, result.musicInfo)
+          }
+        }
+
+        throw lastVerifyError instanceof Error ? lastVerifyError : new Error('未获取到有效播放链接')
+      } catch (err) {
+        const message = this.normalizeLatencyTestErrorMessage(err)
+        if (message === requestMsg.cancelRequest) {
+          this.cancelVerifyTask(api.id)
+          this.removeTestState(api.id)
+          return null
+        }
+        this.setTestState(api.id, {
+          status: 'error',
+          message,
+        })
+        return false
+      } finally {
+        this.clearVerifyTask(api.id)
+        this.removeActiveTestApiId(api.id)
+        this.removePendingStopTestApiId(api.id)
+      }
+    },
+    async handleTestLatency(api) {
+      if (this.isApiTesting(api.id)) {
+        this.stopLatencyTest(api.id)
+        return
+      }
+      if (this.isBusy) return
+      this.addPreparingTestApiId(api.id)
+      this.setTestState(api.id, {
+        status: 'loading',
+        message: this.$t('user_api__test_latency_preparing'),
+      })
+      try {
+        const samples = await this.waitForLatencyTestSamples(api.id)
+        if (this.isPendingStopTestApi(api.id)) {
+          this.removeTestState(api.id)
+          return
+        }
+        await this.runLatencyTest(api, samples)
+      } catch (err) {
+        const message = this.normalizeLatencyTestErrorMessage(err)
+        if (message === requestMsg.cancelRequest) this.removeTestState(api.id)
+        else {
+          this.setTestState(api.id, {
+            status: 'error',
+            message,
+          })
+        }
+      } finally {
+        this.removePreparingTestApiId(api.id)
+        this.removePendingStopTestApiId(api.id)
+      }
+    },
+    async handleTestAllLatency() {
+      if (this.isBatchTesting) {
+        this.stopAllLatencyTests()
+        return
+      }
+      if (!this.apiList.length || this.isBusy) return
+      const apiQueue = [...this.apiList]
+      this.isBatchTesting = true
+      this.isBatchStopRequested = false
+      this.removedDuringBatchApiIds = []
+      this.queuedBatchTestApiIds = apiQueue.map(api => api.id)
+      this.batchTestProgress = {
+        current: 0,
+        total: apiQueue.length,
+      }
+      let success = 0
+      let fail = 0
+      try {
+        const samples = await this.waitForLatencyTestSamples(BATCH_SAMPLE_PREPARE_KEY)
+        if (this.isBatchStopRequested) return
+        let currentIndex = 0
+        const runWorker = async() => {
+          while (currentIndex < apiQueue.length) {
+            if (this.isBatchStopRequested) return
+            const api = apiQueue[currentIndex++]
+            if (!api) return
+            if (this.isRemovedDuringBatchApi(api.id) || !this.apiList.some(item => item.id === api.id)) {
+              this.removeQueuedBatchTestApiId(api.id)
+              this.batchTestProgress = {
+                current: this.batchTestProgress.current + 1,
+                total: this.batchTestProgress.total,
+              }
+              continue
+            }
+            this.removeQueuedBatchTestApiId(api.id)
+            const result = await this.runLatencyTest(api, samples)
+            if (result === true) success++
+            else if (result === false) fail++
+            this.batchTestProgress = {
+              current: this.batchTestProgress.current + 1,
+              total: this.batchTestProgress.total,
+            }
+          }
+        }
+        await Promise.all(Array.from({
+          length: Math.max(1, Math.min(BATCH_TEST_CONCURRENCY, apiQueue.length)),
+        }, async() => {
+          await runWorker()
+        }))
+        if (!this.isBatchStopRequested) await dialog(this.$t('user_api__test_latency_batch_result', { success, fail }))
+      } catch (err) {
+        const message = this.normalizeLatencyTestErrorMessage(err)
+        if (message !== requestMsg.cancelRequest) void dialog(message)
+      } finally {
+        this.isBatchTesting = false
+        this.isBatchStopRequested = false
+        this.removedDuringBatchApiIds = []
+        this.clearQueuedBatchTestApiIds()
+        this.batchTestProgress = {
+          current: 0,
+          total: this.apiList.length,
+        }
+      }
     },
   },
 }
@@ -169,7 +1151,7 @@ export default {
   padding: 0;
   display: flex;
   flex-flow: column nowrap;
-  min-height: 0;
+  min-height: min(520px, 70vh);
   max-height: 100%;
   background:
     radial-gradient(circle at 14% 0, var(--color-primary-light-300-alpha-800), transparent 34%),
@@ -180,6 +1162,8 @@ export default {
 
 .header {
   position: relative;
+  flex: none;
+  z-index: 2;
   padding: 0 26px 18px;
   display: flex;
   align-items: center;
@@ -228,6 +1212,158 @@ export default {
   }
 }
 
+.headerActions {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerCloseBtn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-text-secondary);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(214, 214, 220, 0.92);
+  cursor: pointer;
+  transition: @transition-fast;
+  transition-property: color, background-color, box-shadow, transform;
+
+  &:hover {
+    color: var(--ui-text-accent);
+    background: var(--color-primary-light-300-alpha-800);
+    box-shadow: inset 0 0 0 1px var(--color-primary-alpha-400);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.toolbar {
+  flex: none;
+  position: relative;
+  z-index: 2;
+  padding: 12px 24px 10px;
+  display: flex;
+  flex-flow: column nowrap;
+  gap: 8px;
+}
+
+.toolbarRow {
+  min-height: 34px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.toolbarRowTrack {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  min-width: max-content;
+  padding: 2px 0;
+}
+
+.toolbarRowSecondary {
+  padding-bottom: 2px;
+}
+
+.categoryGroup,
+.filterGroup,
+.selectGroup {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  flex: none;
+}
+
+.categoryGroup {
+  min-width: max-content;
+}
+
+.toolbarBtn {
+  height: 30px;
+  max-width: 220px;
+  padding: 0 12px !important;
+  border-radius: 999px;
+  font-size: var(--ui-font-meta);
+  color: var(--ui-text-secondary);
+  border-color: rgba(213, 213, 218, 0.92);
+  background: rgba(255, 255, 255, 0.74);
+  .mixin-ellipsis-1();
+}
+
+.toolbarActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbarBtnLoading {
+  color: var(--ui-text-accent);
+  border-color: var(--color-primary-alpha-500);
+  background: var(--color-primary-light-300-alpha-800);
+}
+
+.spinningIcon {
+  animation: toolbarSpin 1s linear infinite;
+}
+
+.toolbarBtn_active {
+  color: var(--ui-text-accent);
+  border-color: var(--color-primary-alpha-500);
+  background: var(--color-primary-light-300-alpha-800);
+}
+
+@keyframes toolbarSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.selectedCount {
+  flex: none;
+  font-size: var(--ui-font-meta);
+  color: var(--ui-text-accent);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.headerBtn {
+  min-width: 108px;
+  height: 34px;
+  padding: 0 14px !important;
+  border-radius: 999px;
+  font-size: var(--ui-font-caption);
+  color: var(--ui-text-accent);
+  border-color: var(--color-primary-alpha-400);
+  background: rgba(255, 255, 255, 0.8);
+
+  &:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light-300-alpha-800);
+  }
+}
+
 .count {
   display: inline-flex;
   align-items: center;
@@ -244,11 +1380,15 @@ export default {
 }
 
 .content {
-  flex: auto;
-  min-height: 170px;
-  max-height: min(430px, 48vh);
-  padding: 14px 24px 10px;
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: 6px 24px 8px;
   overflow-y: auto;
+  list-style: none;
 
   &::-webkit-scrollbar {
     width: 8px;
@@ -354,6 +1494,27 @@ export default {
   font-weight: 700;
 }
 
+.categoryTag {
+  flex: none;
+  max-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: var(--ui-font-meta);
+  color: var(--ui-text-secondary);
+  background: rgba(244, 244, 246, 0.94);
+  border: 1px solid rgba(220, 220, 224, 0.96);
+  .mixin-ellipsis-1();
+}
+
+.categoryTag_subscribe {
+  color: var(--ui-text-accent);
+  background: rgba(255, 242, 242, 0.96);
+  border-color: var(--color-primary-alpha-300);
+}
+
 .cardMeta {
   display: flex;
   align-items: center;
@@ -384,6 +1545,25 @@ export default {
   white-space: nowrap;
 }
 
+.sourceRow {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sourceTag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: var(--ui-font-meta);
+  color: var(--ui-text-accent);
+  background: var(--color-primary-light-300-alpha-800);
+  border: 1px solid var(--color-primary-alpha-300);
+}
+
 .checkbox {
   font-size: var(--ui-font-caption);
 }
@@ -396,9 +1576,86 @@ export default {
   opacity: .84;
 }
 
+.testRow {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.testBtn {
+  flex: none;
+  min-width: 74px;
+  height: 28px;
+  line-height: 28px;
+  padding: 0 10px !important;
+  border-radius: 999px;
+  font-size: var(--ui-font-meta);
+  color: var(--ui-text-accent);
+  border: 1px solid var(--color-primary-alpha-400);
+  background: rgba(255, 255, 255, 0.72);
+
+  &:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light-300-alpha-800);
+  }
+}
+
+.testStatus {
+  min-width: 0;
+  font-size: var(--ui-font-meta);
+  font-weight: 700;
+  color: var(--ui-text-secondary);
+  .mixin-ellipsis-1();
+}
+
+.testStatus_success {
+  color: #1f8f5f;
+}
+
+.testStatus_error {
+  color: var(--color-primary);
+}
+
+.testStatus_loading,
+.testStatus_testing {
+  color: var(--ui-text-accent);
+}
+
+.testDetail {
+  margin-top: 5px;
+  font-size: var(--ui-font-meta);
+  line-height: 1.45;
+  color: var(--ui-text-tertiary);
+  word-break: break-word;
+}
+
 .cardRight {
   flex: none;
   margin-left: 14px;
+  display: flex;
+  flex-flow: column nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.selectBtn {
+  min-width: 62px;
+  height: 30px;
+  line-height: 30px;
+  padding: 0 10px !important;
+  border-radius: 999px;
+  font-size: var(--ui-font-meta);
+  color: var(--ui-text-secondary);
+  border-color: rgba(213, 213, 218, 0.92);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.selectBtn_active {
+  color: var(--ui-text-accent);
+  border-color: var(--color-primary-alpha-500);
+  background: var(--color-primary-light-300-alpha-800);
 }
 
 .removeBtn {
@@ -431,6 +1688,7 @@ export default {
 
 .noitem {
   height: 170px;
+  margin-top: 8px;
   font-size: var(--ui-font-body);
   color: var(--ui-text-tertiary);
   display: flex;
@@ -459,37 +1717,108 @@ export default {
 }
 
 .note {
-  margin: 2px 24px 0;
-  padding: 12px 14px;
-  border-radius: 16px;
+  flex: none;
+  position: relative;
+  z-index: 2;
+  margin: 8px 24px 0;
+  padding: 0 0 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.noteTrack {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 32px;
+  min-width: max-content;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(246, 246, 248, 0.82);
+  border: 1px solid rgba(229, 229, 232, 0.9);
+}
+
+.docItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.docLink,
+.docHelpBtn,
+.noteInfoBtn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.docLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--ui-font-meta);
   line-height: var(--ui-line-body);
-  color: var(--ui-text-tertiary);
-  background: rgba(246, 246, 248, 0.76);
-  border: 1px solid rgba(229, 229, 232, 0.82);
+  color: var(--ui-text-accent);
+  cursor: pointer;
 
-  p {
-    + p {
-      margin-top: 3px;
-    }
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.noteInfoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ui-font-meta);
+  line-height: var(--ui-line-body);
+  color: var(--ui-text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ui-text-accent);
+  }
+}
+
+.docHelpBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-text-tertiary);
+  cursor: pointer;
+  opacity: .86;
+
+  &:hover {
+    color: var(--ui-text-accent);
+    opacity: 1;
   }
 }
 
 .footer {
-  padding: 14px 24px 22px;
+  flex: none;
+  position: relative;
+  z-index: 2;
+  padding: 12px 24px 20px;
   display: flex;
-  flex-flow: row wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
 }
 
 .footerBtn {
-  flex: 1;
-  min-width: 118px;
-  height: 40px;
-  line-height: 40px;
-  padding: 0 12px !important;
-  font-size: var(--ui-font-body);
-  border-radius: 14px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 38px;
+  line-height: 38px;
+  padding: 0 10px !important;
+  font-size: var(--ui-font-caption);
+  border-radius: 13px;
   text-align: center;
   .mixin-ellipsis-1();
 }
@@ -525,10 +1854,13 @@ export default {
   .header {
     padding-left: 22px;
     padding-right: 22px;
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .content,
-  .footer {
+  .footer,
+  .toolbar {
     padding-left: 20px;
     padding-right: 20px;
   }
@@ -539,7 +1871,24 @@ export default {
   }
 
   .footerBtn {
-    min-width: 46%;
+    min-width: 0;
+  }
+
+  .headerActions {
+    width: 100%;
+    margin-left: 0;
+    margin-top: 10px;
+  }
+
+  .headerBtn {
+    width: 100%;
+  }
+
+  .toolbarActionBtn,
+  .docLink,
+  .docHelpBtn,
+  .noteInfoBtn {
+    justify-content: center;
   }
 }
 </style>

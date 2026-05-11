@@ -3,6 +3,7 @@ import {
   type PlayerMusicInfo,
   musicInfo,
   isPlay,
+  isPlayLoading,
   status,
   statusText,
   isShowPlayerDetail,
@@ -38,6 +39,10 @@ export const setMusicInfo = (_musicInfo: Partial<PlayerMusicInfo>) => {
 
 export const setPlay = (val: boolean) => {
   isPlay.value = val
+}
+
+export const setPlayLoading = (val: boolean) => {
+  isPlayLoading.value = val
 }
 
 export const setStatus = (val: string) => {
