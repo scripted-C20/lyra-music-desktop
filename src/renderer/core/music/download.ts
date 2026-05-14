@@ -1,12 +1,13 @@
 import { getDownloadFilePath } from '@renderer/utils/music'
 import { requestMsg } from '@renderer/utils/message'
+import { saveLyric } from '@renderer/utils/ipc'
 
 import {
   createGetMusicUrlTask as createOnlineGetMusicUrlTask,
   getPicUrl as getOnlinePicUrl,
   getLyricInfo as getOnlineLyricInfo,
 } from './online'
-import { buildLyricInfo, getCachedLyricInfo, type CancelableTask, type MusicUrlTaskOptions } from './utils'
+import { buildLyricInfo, getCachedLyricInfo, getCurrentResolvedSourceMusicInfo, type CancelableTask, type MusicUrlTaskOptions } from './utils'
 import { buildSavePath } from '@renderer/store/download/utils'
 
 export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
@@ -19,10 +20,11 @@ export const getMusicUrl = async({ musicInfo, isRefresh, allowToggleSource = tru
   return createGetMusicUrlTask({ musicInfo, isRefresh, allowToggleSource, onToggleSource, taskOptions }).promise
 }
 
-export const createGetMusicUrlTask = ({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
+export const createGetMusicUrlTask = ({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {}, onResolvedMusicInfo, taskOptions }: {
   musicInfo: LX.Download.ListItem
   isRefresh: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  onResolvedMusicInfo?: (musicInfo: LX.Download.ListItem | LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
   taskOptions?: MusicUrlTaskOptions
 }): CancelableTask<string> => {
@@ -36,10 +38,13 @@ export const createGetMusicUrlTask = ({ musicInfo, isRefresh, allowToggleSource 
     promise: (async() => {
       if (!isRefresh) {
         const path = await getDownloadFilePath(musicInfo, buildSavePath(musicInfo))
-        if (path) return path
+        if (path) {
+          onResolvedMusicInfo?.(musicInfo)
+          return path
+        }
       }
 
-      const task = createOnlineGetMusicUrlTask({ musicInfo: musicInfo.metadata.musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
+      const task = createOnlineGetMusicUrlTask({ musicInfo: musicInfo.metadata.musicInfo, isRefresh, onToggleSource, onResolvedMusicInfo, allowToggleSource, taskOptions })
       cancelTask = task.cancel
       const url = await task.promise
       if (isCancelled) throw new Error(requestMsg.cancelRequest)
@@ -77,22 +82,60 @@ export const getLyricInfo = async({ musicInfo, isRefresh, onToggleSource = () =>
   isRefresh: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
 }): Promise<LX.Player.LyricInfo> => {
+  const targetMusicInfo = musicInfo.metadata.musicInfo
+  let fileLyricInfoTask: Promise<LX.Music.LyricInfo | null> | null = null
+  const getFileLyricInfo = async() => {
+    fileLyricInfoTask ??= (async() => {
+      const path = await getDownloadFilePath(musicInfo, buildSavePath(musicInfo))
+      if (!path) return null
+      return window.lx.worker.main.getMusicFileLyric(path)
+    })()
+    return fileLyricInfoTask
+  }
+  const getResolvedSourceLyricInfo = async() => {
+    const resolvedMusicInfo = getCurrentResolvedSourceMusicInfo(musicInfo)
+    if (!resolvedMusicInfo) return null
+    try {
+      const lyricInfo = await getOnlineLyricInfo({
+        musicInfo: resolvedMusicInfo,
+        isRefresh,
+        onToggleSource,
+        allowToggleSource: false,
+      })
+      void saveLyric(targetMusicInfo, lyricInfo)
+      return lyricInfo
+    } catch (err: any) {
+      if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+    }
+    return null
+  }
+
   if (!isRefresh) {
-    const lyricInfo = await getCachedLyricInfo(musicInfo.metadata.musicInfo)
+    const [lyricInfo, fileLyricInfo] = await Promise.all([getCachedLyricInfo(targetMusicInfo), getFileLyricInfo()])
+    if (lyricInfo?.lyric && lyricInfo.lyric != fileLyricInfo?.lyric) {
+      return buildLyricInfo({ ...lyricInfo, rawlrcInfo: fileLyricInfo ?? lyricInfo.rawlrcInfo })
+    }
+    if (fileLyricInfo) return buildLyricInfo(fileLyricInfo)
+
+    const resolvedLyricInfo = await getResolvedSourceLyricInfo()
+    if (resolvedLyricInfo) return resolvedLyricInfo
+
     if (lyricInfo) return buildLyricInfo(lyricInfo)
+  } else {
+    const fileLyricInfo = await getFileLyricInfo()
+    if (fileLyricInfo) return buildLyricInfo(fileLyricInfo)
+
+    const resolvedLyricInfo = await getResolvedSourceLyricInfo()
+    if (resolvedLyricInfo) return resolvedLyricInfo
   }
 
   return getOnlineLyricInfo({
-    musicInfo: musicInfo.metadata.musicInfo,
+    musicInfo: targetMusicInfo,
     isRefresh,
     onToggleSource,
   }).catch(async() => {
-    // 尝试读取文件内歌词
-    const path = await getDownloadFilePath(musicInfo, buildSavePath(musicInfo))
-    if (path) {
-      const rawlrcInfo = await window.lx.worker.main.getMusicFileLyric(path)
-      if (rawlrcInfo) return buildLyricInfo(rawlrcInfo)
-    }
+    const fileLyricInfo = await getFileLyricInfo()
+    if (fileLyricInfo) return buildLyricInfo(fileLyricInfo)
 
     throw new Error('failed')
   })

@@ -4,6 +4,11 @@ import { saveAppHotKeyConfig, updateSetting } from '@main/utils'
 import type { BrowserWindow } from 'electron'
 
 export class Event extends EventEmitter {
+  constructor() {
+    super()
+    this.setMaxListeners(32)
+  }
+
   // closeAll() {
   //   this.emit(COMMON_EVENT_NAME.closeAll)
   // }

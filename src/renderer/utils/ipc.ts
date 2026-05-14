@@ -5,6 +5,7 @@ import { markRaw } from '@common/utils/vueTools'
 import * as hotKeys from '@common/hotKey'
 import { APP_EVENT_NAMES, DATA_KEYS, DEFAULT_SETTING } from '@common/constants'
 import { requestMsg } from './message'
+import { createMusicUrlCacheId } from './musicUrlCache'
 
 type RemoveListener = () => void
 
@@ -229,6 +230,16 @@ export const savePlayInfo = (playInfo: LX.Player.SavedPlayInfo) => {
 // 获取上次关闭时的当前歌曲播放信息
 export const getPlayInfo = async() => {
   return rendererInvoke<string, LX.Player.SavedPlayInfo | null>(WIN_MAIN_RENDERER_EVENT_NAME.get_data, DATA_KEYS.playInfo)
+}
+
+export const saveResolvedSourceMemory = (list: Array<[string, LX.Music.MusicInfoOnline]>) => {
+  rendererSend(WIN_MAIN_RENDERER_EVENT_NAME.save_data, {
+    path: DATA_KEYS.resolvedSourceMemory,
+    data: list,
+  })
+}
+export const getResolvedSourceMemory = async() => {
+  return rendererInvoke<string, Array<[string, LX.Music.MusicInfoOnline]> | null>(WIN_MAIN_RENDERER_EVENT_NAME.get_data, DATA_KEYS.resolvedSourceMemory)
 }
 
 export const saveSearchHistoryList = (list: LX.List.SearchHistoryList) => {
@@ -678,8 +689,8 @@ export const getThemes = async() => {
  * @param type URL音质
  * @returns
  */
-export const getMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality): Promise<string> => {
-  return rendererInvoke<string, string>(WIN_MAIN_RENDERER_EVENT_NAME.get_music_url, `${musicInfo.id}_${type}`)
+export const getMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, sourceId?: string | null): Promise<string> => {
+  return rendererInvoke<string, string>(WIN_MAIN_RENDERER_EVENT_NAME.get_music_url, createMusicUrlCacheId(musicInfo, type, sourceId))
 }
 
 /**
@@ -688,9 +699,9 @@ export const getMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality
  * @param type URL音质
  * @param url 歌曲URL
  */
-export const saveMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, url: string) => {
+export const saveMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, url: string, sourceId?: string | null) => {
   await rendererInvoke<LX.Music.MusicUrlInfo>(WIN_MAIN_RENDERER_EVENT_NAME.save_music_url, {
-    id: `${musicInfo.id}_${type}`,
+    id: createMusicUrlCacheId(musicInfo, type, sourceId),
     url,
   })
 }

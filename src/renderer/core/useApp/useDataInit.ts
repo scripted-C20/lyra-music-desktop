@@ -10,6 +10,7 @@ import { onBeforeUnmount } from '@common/utils/vueTools'
 import { appSetting } from '@renderer/store/setting'
 import { playMusicInfo } from '@renderer/store/player/state'
 import { initDislikeInfo, registerRemoteDislikeAction } from '@renderer/core/dislikeList'
+import { initPersistedSourceMemory } from '@renderer/core/player/runtimeSourceMemory'
 
 const initPrevPlayInfo = async() => {
   const info = await getPlayInfo()
@@ -43,6 +44,7 @@ export default () => {
   return async() => {
     await Promise.all([
       initUserApi(), // 自定义API
+      initPersistedSourceMemory(),
     ]).catch(err => {
       log.error(err)
     })

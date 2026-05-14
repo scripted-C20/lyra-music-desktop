@@ -9,7 +9,7 @@ import { sendShowUpdateAlert, sendStatusChange } from '@main/modules/winMain'
 const CANCELLED_RESULT = {
   __cancelled__: true,
 }
-const DEFAULT_REQUEST_TIMEOUT = 20_000
+const DEFAULT_REQUEST_TIMEOUT_BUFFER = 5_000
 const MUSIC_URL_REQUEST_BUFFER = 10_000
 const API_INIT_TIMEOUT = 20_000
 
@@ -75,7 +75,7 @@ const getRequestTimeout = (data: any) => {
     case 'musicUrl':
       return getSourceSearchTimeoutWithBufferMs(global.lx.appSetting['common.sourceSearchTimeout'], MUSIC_URL_REQUEST_BUFFER)
     default:
-      return DEFAULT_REQUEST_TIMEOUT
+      return getSourceSearchTimeoutWithBufferMs(global.lx.appSetting['common.sourceSearchTimeout'], DEFAULT_REQUEST_TIMEOUT_BUFFER)
   }
 }
 

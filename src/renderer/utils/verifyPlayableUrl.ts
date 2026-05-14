@@ -2,6 +2,7 @@ export interface VerifyPlayableUrlTaskOptions {
   timeout: number
   minProgress?: number
   minPlayTime?: number
+  minTimeupdateCount?: number
   failedMessage?: string
   timeoutMessage?: string
   cancelMessage?: string
@@ -9,6 +10,7 @@ export interface VerifyPlayableUrlTaskOptions {
 
 const DEFAULT_MIN_PROGRESS = 0.15
 const DEFAULT_MIN_PLAY_TIME = 800
+const DEFAULT_MIN_TIMEUPDATE_COUNT = 1
 const DEFAULT_FAILED_MESSAGE = 'play verify failed'
 const DEFAULT_TIMEOUT_MESSAGE = 'play verify timeout'
 const DEFAULT_CANCEL_MESSAGE = 'Cancel request'
@@ -22,6 +24,7 @@ export const createVerifyPlayableUrlTask = (url: string, options: VerifyPlayable
     const timeout = Math.max(1, Math.trunc(options.timeout))
     const minProgress = options.minProgress ?? DEFAULT_MIN_PROGRESS
     const minPlayTime = options.minPlayTime ?? DEFAULT_MIN_PLAY_TIME
+    const minTimeupdateCount = Math.max(1, Math.trunc(options.minTimeupdateCount ?? DEFAULT_MIN_TIMEUPDATE_COUNT))
     const failedMessage = options.failedMessage ?? DEFAULT_FAILED_MESSAGE
     const timeoutMessage = options.timeoutMessage ?? DEFAULT_TIMEOUT_MESSAGE
     const cancelMessage = options.cancelMessage ?? DEFAULT_CANCEL_MESSAGE
@@ -29,6 +32,8 @@ export const createVerifyPlayableUrlTask = (url: string, options: VerifyPlayable
     let timeoutId: NodeJS.Timeout | null = null
     let playingStartedAt = 0
     let hasStartedPlayback = false
+    let timeupdateCount = 0
+    let lastCurrentTime = 0
 
     const cleanup = () => {
       audio.removeEventListener('canplay', handleCanplay)
@@ -55,13 +60,12 @@ export const createVerifyPlayableUrlTask = (url: string, options: VerifyPlayable
       })
     }
     const verifyPlayback = () => {
-      if (audio.currentTime >= minProgress) {
-        settle(() => {
-          resolve(Date.now() - startTime)
-        })
-        return
-      }
-      if (playingStartedAt && audio.currentTime > 0 && Date.now() - playingStartedAt >= minPlayTime) {
+      if (
+        audio.currentTime >= minProgress &&
+        playingStartedAt &&
+        Date.now() - playingStartedAt >= minPlayTime &&
+        timeupdateCount >= minTimeupdateCount
+      ) {
         settle(() => {
           resolve(Date.now() - startTime)
         })
@@ -86,6 +90,10 @@ export const createVerifyPlayableUrlTask = (url: string, options: VerifyPlayable
     }
     const handleTimeupdate = () => {
       if (!playingStartedAt && audio.currentTime > 0) playingStartedAt = Date.now()
+      if (audio.currentTime > lastCurrentTime) {
+        timeupdateCount++
+        lastCurrentTime = audio.currentTime
+      }
       verifyPlayback()
     }
 

@@ -71,10 +71,12 @@ export const getSourceSearchTimeoutSeconds = () => {
 
 export const getPlaybackMusicUrlTaskOptions = (overrides: {
   skipUserApiVerify?: boolean
+  skipSharedCache?: boolean
 } = {}) => {
   return {
     urlTimeout: getSourceSearchTimeoutWithBufferMs(appSetting['common.sourceSearchTimeout']),
     otherSourceTimeout: getSourceSearchTimeoutMs(appSetting['common.sourceSearchTimeout']),
     skipUserApiVerify: !!overrides.skipUserApiVerify,
+    skipSharedCache: !!overrides.skipSharedCache,
   }
 }

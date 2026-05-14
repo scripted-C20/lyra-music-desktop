@@ -7,17 +7,34 @@ import {
   // saveOtherSource as saveOtherSourceFromStore,
   getMusicUrl as getStoreMusicUrl,
   getPlayerLyric as getStoreLyric,
+  saveMusicUrl as saveStoreMusicUrl,
 } from '@renderer/utils/ipc'
 import { appSetting } from '@renderer/store/setting'
 import { langS2T, toNewMusicInfo, toOldMusicInfo } from '@renderer/utils'
 import { requestMsg } from '@renderer/utils/message'
 import { apis } from '@renderer/utils/musicSdk/api-source'
 import { createVerifyPlayableUrlTask } from '@renderer/utils/verifyPlayableUrl'
+import { getPreferredResolvedSourceMusicInfo } from '@renderer/core/player/runtimeSourceMemory'
+import { getPendingResolvedMusicInfo } from '@renderer/core/player/musicUrlState'
+import { createMusicUrlCacheId } from '@renderer/utils/musicUrlCache'
 
 
 const getOtherSourcePromises = new Map()
 const otherSourceCache = new Map<LX.Music.MusicInfo | LX.Download.ListItem, LX.Music.MusicInfoOnline[]>()
 export const existTimeExp = /\[\d{1,2}:.*\d{1,4}\]/
+const hasLyricText = (text?: string | null): text is string => typeof text == 'string' && text.trim().length > 0
+const hasUsableLyricInfo = (lyricInfo?: Partial<LX.Music.LyricInfo | LX.Player.LyricInfo> | null) => {
+  if (!lyricInfo) return false
+  return [lyricInfo.lyric, lyricInfo.tlyric, lyricInfo.rlyric, lyricInfo.lxlyric].some(hasLyricText)
+}
+const hasTimeTagLyricInfo = (lyricInfo?: Partial<LX.Music.LyricInfo | LX.Player.LyricInfo> | null) => {
+  if (!lyricInfo) return false
+  return [lyricInfo.lyric, lyricInfo.tlyric, lyricInfo.rlyric, lyricInfo.lxlyric]
+    .some(text => {
+      if (!hasLyricText(text)) return false
+      return existTimeExp.test(text)
+    })
+}
 const noop = () => {}
 
 export interface CancelableTask<T> {
@@ -28,19 +45,52 @@ export interface MusicUrlTaskOptions {
   urlTimeout?: number
   otherSourceTimeout?: number
   skipUserApiVerify?: boolean
+  skipSharedCache?: boolean
 }
 
 export const isUserApiSourceSelected = () => /^user_api/.test(appSetting['common.apiSource'])
-export const canUseMusicUrlCache = (isRefresh: boolean) => !isRefresh && !isUserApiSourceSelected()
+export const canUseMusicUrlCache = (isRefresh: boolean) => !isRefresh
 export const getSourceSearchTimeoutMilliseconds = () => getSourceSearchTimeoutMs(appSetting['common.sourceSearchTimeout'])
+export const LOCAL_FALLBACK_CACHE_QUALITY: LX.Quality = '128k'
+const SHARED_MUSIC_URL_CACHE_SOURCE_ID = null
 const USER_API_PLAY_VERIFY_MIN_TIMEOUT = 6_000
 const USER_API_PLAY_VERIFY_MAX_TIMEOUT = 12_000
-const USER_API_PLAY_VERIFY_MIN_PROGRESS = 0.15
-const USER_API_PLAY_VERIFY_MIN_PLAY_TIME = 800
+const USER_API_PLAY_VERIFY_MIN_PROGRESS = 1.2
+const USER_API_PLAY_VERIFY_MIN_PLAY_TIME = 1_500
+const USER_API_PLAY_VERIFY_MIN_TIMEUPDATE_COUNT = 2
+const CACHED_MUSIC_URL_RESOLVED_SOURCE_MAX = 500
+const OTHER_SOURCE_GROUP_CONCURRENCY = 2
+
+type MusicInfoLike = LX.Music.MusicInfo | LX.Download.ListItem
+interface CachedMusicUrlInfo {
+  url: string
+  cacheSourceId: string | null
+  resolvedMusicInfo: LX.Music.MusicInfoOnline | null
+}
+
+const getMusicUrlCacheBaseMusicInfo = (musicInfo: MusicInfoLike): LX.Music.MusicInfo => {
+  return 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+}
 
 const createCancelledError = () => new Error(requestMsg.cancelRequest)
 const getUserApiPlaybackVerifyTimeout = () => {
   return Math.max(USER_API_PLAY_VERIFY_MIN_TIMEOUT, Math.min(USER_API_PLAY_VERIFY_MAX_TIMEOUT, getSourceSearchTimeoutMilliseconds()))
+}
+export const createPlaybackVerifyTask = (url: string, options: Partial<{
+  timeout: number
+  failedMessage: string
+  timeoutMessage: string
+  cancelMessage: string
+}> = {}) => {
+  return createVerifyPlayableUrlTask(url, {
+    timeout: options.timeout ?? getUserApiPlaybackVerifyTimeout(),
+    minProgress: USER_API_PLAY_VERIFY_MIN_PROGRESS,
+    minPlayTime: USER_API_PLAY_VERIFY_MIN_PLAY_TIME,
+    minTimeupdateCount: USER_API_PLAY_VERIFY_MIN_TIMEUPDATE_COUNT,
+    failedMessage: options.failedMessage ?? requestMsg.fail,
+    timeoutMessage: options.timeoutMessage ?? requestMsg.timeout,
+    cancelMessage: options.cancelMessage ?? requestMsg.cancelRequest,
+  })
 }
 const verifyPlayableUrlIfNeeded = async(
   url: string,
@@ -50,14 +100,7 @@ const verifyPlayableUrlIfNeeded = async(
 ) => {
   if (skipUserApiVerify) return
   if (!isUserApiSourceSelected() || !/^https?:/i.test(url)) return
-  const verifyTask = createVerifyPlayableUrlTask(url, {
-    timeout: getUserApiPlaybackVerifyTimeout(),
-    minProgress: USER_API_PLAY_VERIFY_MIN_PROGRESS,
-    minPlayTime: USER_API_PLAY_VERIFY_MIN_PLAY_TIME,
-    failedMessage: requestMsg.fail,
-    timeoutMessage: requestMsg.timeout,
-    cancelMessage: requestMsg.cancelRequest,
-  })
+  const verifyTask = createPlaybackVerifyTask(url)
   setCancel(verifyTask.cancel)
   await verifyTask.promise
   setCancel(noop)
@@ -68,6 +111,112 @@ const createRejectedTask = <T>(error: unknown): CancelableTask<T> => {
     promise: Promise.reject(error),
     cancel: noop,
   }
+}
+const cachedMusicUrlResolvedSourceMap = new Map<string, LX.Music.MusicInfoOnline>()
+const cleanupCachedMusicUrlResolvedSourceMap = () => {
+  while (cachedMusicUrlResolvedSourceMap.size > CACHED_MUSIC_URL_RESOLVED_SOURCE_MAX) {
+    const firstKey = cachedMusicUrlResolvedSourceMap.keys().next().value
+    if (!firstKey) break
+    cachedMusicUrlResolvedSourceMap.delete(firstKey)
+  }
+}
+const getMusicUrlCacheSourceIds = (
+  sourceId = appSetting['common.apiSource'],
+  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache'>,
+) => {
+  const ids: Array<string | null> = options?.skipSharedCache ? [] : [SHARED_MUSIC_URL_CACHE_SOURCE_ID]
+  if (sourceId != null && sourceId !== '') ids.unshift(sourceId)
+  return Array.from(new Set(ids))
+}
+const rememberCachedMusicUrlResolvedSource = (
+  musicInfo: MusicInfoLike,
+  quality: LX.Quality,
+  resolvedMusicInfo: LX.Music.MusicInfoOnline,
+  sourceId = appSetting['common.apiSource'],
+) => {
+  const targetMusicInfo = getMusicUrlCacheBaseMusicInfo(musicInfo)
+  for (const cacheSourceId of getMusicUrlCacheSourceIds(sourceId)) {
+    cachedMusicUrlResolvedSourceMap.set(createMusicUrlCacheId(targetMusicInfo, quality, cacheSourceId), resolvedMusicInfo)
+  }
+  cleanupCachedMusicUrlResolvedSourceMap()
+}
+export const getCachedMusicUrlInfo = async(
+  musicInfo: MusicInfoLike,
+  quality: LX.Quality,
+  sourceId = appSetting['common.apiSource'],
+  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache'>,
+): Promise<CachedMusicUrlInfo | null> => {
+  const targetMusicInfo = getMusicUrlCacheBaseMusicInfo(musicInfo)
+  for (const cacheSourceId of getMusicUrlCacheSourceIds(sourceId, options)) {
+    const cachedUrl = await getStoreMusicUrl(targetMusicInfo, quality, cacheSourceId)
+    if (!cachedUrl) continue
+    return {
+      url: cachedUrl,
+      cacheSourceId,
+      resolvedMusicInfo: cachedMusicUrlResolvedSourceMap.get(createMusicUrlCacheId(targetMusicInfo, quality, cacheSourceId)) ??
+        getPreferredResolvedSourceMusicInfo(musicInfo, sourceId) ??
+        null,
+    }
+  }
+  return null
+}
+export const getCachedMusicUrl = async(
+  musicInfo: MusicInfoLike,
+  quality: LX.Quality,
+  sourceId = appSetting['common.apiSource'],
+  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache'>,
+) => {
+  return (await getCachedMusicUrlInfo(musicInfo, quality, sourceId, options))?.url ?? ''
+}
+export const saveCachedMusicUrl = async(
+  musicInfo: MusicInfoLike,
+  quality: LX.Quality,
+  url: string,
+  sourceId = appSetting['common.apiSource'],
+  resolvedMusicInfo?: LX.Music.MusicInfoOnline | null,
+) => {
+  if (!url) return
+  const targetMusicInfo = getMusicUrlCacheBaseMusicInfo(musicInfo)
+  if (resolvedMusicInfo) rememberCachedMusicUrlResolvedSource(musicInfo, quality, resolvedMusicInfo, sourceId)
+  await Promise.all(getMusicUrlCacheSourceIds(sourceId).map(cacheSourceId => {
+    return saveStoreMusicUrl(targetMusicInfo, quality, url, cacheSourceId)
+  }))
+}
+const tryUseCachedMusicUrlInfo = async(
+  musicInfo: MusicInfoLike,
+  quality: LX.Quality,
+  isRefresh: boolean,
+  sourceId = appSetting['common.apiSource'],
+  taskOptions: MusicUrlTaskOptions | undefined,
+  setCancel: (cancel: () => void) => void,
+  throwIfCancelled: () => void,
+): Promise<CachedMusicUrlInfo | null> => {
+  const cachedUrlInfo = await getCachedMusicUrlInfo(musicInfo, quality, sourceId, taskOptions)
+  if (!cachedUrlInfo || !canUseMusicUrlCache(isRefresh)) return null
+  try {
+    await verifyPlayableUrlIfNeeded(cachedUrlInfo.url, setCancel, throwIfCancelled, taskOptions?.skipUserApiVerify)
+    setCancel(noop)
+    return cachedUrlInfo
+  } catch (err: any) {
+    setCancel(noop)
+    if (err.message == requestMsg.cancelRequest) throw err
+  }
+  return null
+}
+export const isSameOnlineMusicInfo = (
+  sourceMusicInfo?: Pick<LX.Music.MusicInfoOnline, 'source' | 'id'> | null,
+  targetMusicInfo?: Pick<LX.Music.MusicInfoOnline, 'source' | 'id'> | null,
+) => {
+  return !!sourceMusicInfo && !!targetMusicInfo &&
+    sourceMusicInfo.source == targetMusicInfo.source &&
+    sourceMusicInfo.id == targetMusicInfo.id
+}
+export const getCurrentResolvedSourceMusicInfo = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
+  const baseMusicInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+  const resolvedMusicInfo = getPendingResolvedMusicInfo(musicInfo) ?? getPreferredResolvedSourceMusicInfo(musicInfo)
+  if (!resolvedMusicInfo) return null
+  if (baseMusicInfo.source != 'local' && isSameOnlineMusicInfo(baseMusicInfo, resolvedMusicInfo)) return null
+  return resolvedMusicInfo
 }
 const getTaskCancel = (task: any) => {
   return typeof task?.cancel == 'function'
@@ -166,9 +315,37 @@ const createMusicUrlRequestTask = (musicInfo: LX.Music.MusicInfoOnline, quality:
     return createRejectedTask(err)
   }
 }
+const createMusicPicRequestTask = (musicInfo: LX.Music.MusicInfoOnline): CancelableTask<string> => {
+  try {
+    return normalizeCancelableTask<string>(musicSdk[musicInfo.source].getPic(toOldMusicInfo(musicInfo)))
+  } catch (err) {
+    return createRejectedTask(err)
+  }
+}
+const createMusicLyricRequestTask = (musicInfo: LX.Music.MusicInfoOnline): CancelableTask<LX.Music.LyricInfo> => {
+  try {
+    return normalizeCancelableTask<LX.Music.LyricInfo>((musicSdk[musicInfo.source].getLyric(toOldMusicInfo(musicInfo)) as any))
+  } catch (err) {
+    return createRejectedTask(err)
+  }
+}
 const createLocalMusicUrlRequestTask = (musicInfo: LX.Music.MusicInfoLocal): CancelableTask<{ url: string }> => {
   try {
     return normalizeCancelableTask(apis('local').getMusicUrl(toOldMusicInfo(musicInfo), null))
+  } catch (err) {
+    return createRejectedTask(err)
+  }
+}
+const createLocalLyricRequestTask = (musicInfo: LX.Music.MusicInfoLocal): CancelableTask<LX.Music.LyricInfo> => {
+  try {
+    return normalizeCancelableTask<LX.Music.LyricInfo>(apis('local').getLyric(toOldMusicInfo(musicInfo)))
+  } catch (err) {
+    return createRejectedTask(err)
+  }
+}
+const createLocalPicRequestTask = (musicInfo: LX.Music.MusicInfoLocal): CancelableTask<string> => {
+  try {
+    return normalizeCancelableTask<string>(apis('local').getPic(toOldMusicInfo(musicInfo)))
   } catch (err) {
     return createRejectedTask(err)
   }
@@ -323,7 +500,9 @@ export const buildLyricInfo = async(lyricInfo: MakeOptional<LX.Player.LyricInfo,
 export const getCachedLyricInfo = async(musicInfo: LX.Music.MusicInfo): Promise<LX.Player.LyricInfo | null> => {
   let lrcInfo = await getStoreLyric(musicInfo)
   // lrcInfo = {} as unknown as LX.Player.LyricInfo
-  if (existTimeExp.test(lrcInfo.lyric)) {
+  if (!hasUsableLyricInfo(lrcInfo)) return null
+  if (hasTimeTagLyricInfo(lrcInfo)) {
+    if (lrcInfo.tlyric == null) return lrcInfo
     if (lrcInfo.tlyric != null) {
       // if (musicInfo.lrc.startsWith('\ufeff[id:$00000000]')) {
       //   let str = musicInfo.lrc.replace('\ufeff[id:$00000000]\n', '')
@@ -350,12 +529,14 @@ export const getCachedLyricInfo = async(musicInfo: LX.Music.MusicInfo): Promise<
       } else return lrcInfo
     }
     if (musicInfo.source == 'local') return lrcInfo
+    return null
   }
-  return null
+  return lrcInfo
 }
 
 export const getOnlineOtherSourceMusicUrlByLocal = async(musicInfo: LX.Music.MusicInfoLocal, isRefresh: boolean, taskOptions?: MusicUrlTaskOptions): Promise<{
   url: string
+  musicInfo: LX.Music.MusicInfoLocal | LX.Music.MusicInfoOnline
   quality: LX.Quality
   isFromCache: boolean
 }> => {
@@ -364,15 +545,32 @@ export const getOnlineOtherSourceMusicUrlByLocal = async(musicInfo: LX.Music.Mus
 
 export const getOnlineOtherSourceMusicUrlByLocalTask = (musicInfo: LX.Music.MusicInfoLocal, isRefresh: boolean, taskOptions?: MusicUrlTaskOptions): CancelableTask<{
   url: string
+  musicInfo: LX.Music.MusicInfoLocal | LX.Music.MusicInfoOnline
   quality: LX.Quality
   isFromCache: boolean
 }> => createCancelableTask(async({ setCancel, throwIfCancelled }) => {
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
 
-  const quality = '128k'
+  const quality = LOCAL_FALLBACK_CACHE_QUALITY
+  const cacheSourceId = appSetting['common.apiSource']
 
-  const cachedUrl = await getStoreMusicUrl(musicInfo, quality)
-  if (cachedUrl && canUseMusicUrlCache(isRefresh)) return { url: cachedUrl, quality, isFromCache: true }
+  const cachedUrlInfo = await tryUseCachedMusicUrlInfo(
+    musicInfo,
+    quality,
+    isRefresh,
+    cacheSourceId,
+    taskOptions,
+    setCancel,
+    throwIfCancelled,
+  )
+  if (cachedUrlInfo) {
+    return {
+      url: cachedUrlInfo.url,
+      musicInfo: cachedUrlInfo.resolvedMusicInfo ?? musicInfo,
+      quality,
+      isFromCache: true,
+    }
+  }
 
   const task = applyTaskTimeout(createLocalMusicUrlRequestTask(musicInfo), taskOptions?.urlTimeout)
   setCancel(task.cancel)
@@ -380,10 +578,10 @@ export const getOnlineOtherSourceMusicUrlByLocalTask = (musicInfo: LX.Music.Musi
   throwIfCancelled()
   await verifyPlayableUrlIfNeeded(url, setCancel, throwIfCancelled, taskOptions?.skipUserApiVerify)
 
-  return { url, quality, isFromCache: false }
+  return { url, musicInfo, quality, isFromCache: false }
 })
 
-export const getOnlineOtherSourceLyricByLocal = async(musicInfo: LX.Music.MusicInfoLocal, isRefresh: boolean): Promise<{
+export const getOnlineOtherSourceLyricByLocal = async(musicInfo: LX.Music.MusicInfoLocal, isRefresh: boolean, taskOptions?: MusicUrlTaskOptions): Promise<{
   lyricInfo: LX.Music.LyricInfo
   isFromCache: boolean
 }> => {
@@ -392,31 +590,20 @@ export const getOnlineOtherSourceLyricByLocal = async(musicInfo: LX.Music.MusicI
   const lyricInfo = await getCachedLyricInfo(musicInfo)
   if (lyricInfo && !isRefresh) return { lyricInfo, isFromCache: true }
 
-  let reqPromise
-  try {
-    reqPromise = apis('local').getLyric(toOldMusicInfo(musicInfo)).promise
-  } catch (err: any) {
-    reqPromise = Promise.reject(err)
-  }
-
-  return reqPromise.then((lyricInfo: LX.Music.LyricInfo) => {
+  const task = applyTaskTimeout(createLocalLyricRequestTask(musicInfo), taskOptions?.urlTimeout)
+  return task.promise.then((lyricInfo: LX.Music.LyricInfo) => {
+    if (!hasUsableLyricInfo(lyricInfo)) throw new Error('failed')
     return { lyricInfo, isFromCache: false }
   })
 }
 
-export const getOnlineOtherSourcePicByLocal = async(musicInfo: LX.Music.MusicInfoLocal): Promise<{
+export const getOnlineOtherSourcePicByLocal = async(musicInfo: LX.Music.MusicInfoLocal, taskOptions?: MusicUrlTaskOptions): Promise<{
   url: string
 }> => {
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
 
-  let reqPromise
-  try {
-    reqPromise = apis('local').getPic(toOldMusicInfo(musicInfo)).promise
-  } catch (err: any) {
-    reqPromise = Promise.reject(err)
-  }
-
-  return reqPromise.then((url: string) => {
+  const task = applyTaskTimeout(createLocalPicRequestTask(musicInfo), taskOptions?.urlTimeout)
+  return task.promise.then((url: string) => {
     return { url }
   })
 }
@@ -453,6 +640,34 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
   return getOnlineOtherSourceMusicUrlTask({ musicInfos, quality, onToggleSource, isRefresh, retryedSource, taskOptions }).promise
 }
 
+const getOtherSourceMusicCandidateKey = (musicInfo: LX.Music.MusicInfoOnline) => `${musicInfo.source}_${musicInfo.id}`
+const groupOtherSourceMusicCandidates = (musicInfos: LX.Music.MusicInfoOnline[], skipSources: LX.OnlineSource[]) => {
+  const seenCandidates = new Set<string>()
+  const sourceGroups = new Map<LX.OnlineSource, LX.Music.MusicInfoOnline[]>()
+  const orderedGroups: Array<{
+    source: LX.OnlineSource
+    musicInfos: LX.Music.MusicInfoOnline[]
+  }> = []
+  for (const musicInfo of musicInfos) {
+    if (skipSources.includes(musicInfo.source)) continue
+    if (!assertApiSupport(musicInfo.source)) continue
+    const candidateKey = getOtherSourceMusicCandidateKey(musicInfo)
+    if (seenCandidates.has(candidateKey)) continue
+    seenCandidates.add(candidateKey)
+    let sourceMusicInfos = sourceGroups.get(musicInfo.source)
+    if (!sourceMusicInfos) {
+      sourceMusicInfos = []
+      sourceGroups.set(musicInfo.source, sourceMusicInfos)
+      orderedGroups.push({
+        source: musicInfo.source,
+        musicInfos: sourceMusicInfos,
+      })
+    }
+    sourceMusicInfos.push(musicInfo)
+  }
+  return orderedGroups
+}
+
 export const getOnlineOtherSourceMusicUrlTask = ({ musicInfos, quality, onToggleSource, isRefresh, retryedSource = [], taskOptions }: {
   musicInfos: LX.Music.MusicInfoOnline[]
   quality?: LX.Quality
@@ -467,42 +682,132 @@ export const getOnlineOtherSourceMusicUrlTask = ({ musicInfos, quality, onToggle
   isFromCache: boolean
 }> => createCancelableTask(async({ setCancel, throwIfCancelled }) => {
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
+  const cacheSourceId = appSetting['common.apiSource']
 
-  let musicInfo: LX.Music.MusicInfoOnline | null = null
-  let itemQuality: LX.Quality | null = null
-  // eslint-disable-next-line no-cond-assign
-  while (musicInfo = (musicInfos.shift()!)) {
-    if (retryedSource.includes(musicInfo.source)) continue
-    retryedSource.push(musicInfo.source)
-    if (!assertApiSupport(musicInfo.source)) continue
-    itemQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
-    if (!musicInfo.meta._qualitys[itemQuality]) continue
+  const sourceGroups = groupOtherSourceMusicCandidates(musicInfos, retryedSource)
+  if (!sourceGroups.length) throw new Error(window.i18n.t('toggle_source_failed'))
 
-    console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
-    onToggleSource(musicInfo)
-    break
-  }
-  if (!musicInfo || !itemQuality) throw new Error(window.i18n.t('toggle_source_failed'))
-  throwIfCancelled()
+  const createSourceGroupTask = (sourceMusicInfos: LX.Music.MusicInfoOnline[]) => createCancelableTask<{
+    url: string
+    musicInfo: LX.Music.MusicInfoOnline
+    quality: LX.Quality
+    isFromCache: boolean
+  }>(async({ setCancel: setGroupCancel, throwIfCancelled: throwIfGroupCancelled }) => {
+    let currentSourceMusicInfo: LX.Music.MusicInfoOnline | null = null
+    let lastError: Error | null = null
+    let hasTriedCandidate = false
+    for (const musicInfo of sourceMusicInfos) {
+      const itemQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
+      if (!musicInfo.meta._qualitys[itemQuality]) continue
+      if (!currentSourceMusicInfo) {
+        currentSourceMusicInfo = musicInfo
+        console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
+        onToggleSource(musicInfo)
+      }
+      throwIfGroupCancelled()
+      hasTriedCandidate = true
 
-  const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
-  if (cachedUrl && canUseMusicUrlCache(isRefresh)) return { url: cachedUrl, musicInfo, quality: itemQuality, isFromCache: true }
+      const cachedUrlInfo = await tryUseCachedMusicUrlInfo(
+        musicInfo,
+        itemQuality,
+        isRefresh,
+        cacheSourceId,
+        taskOptions,
+        setGroupCancel,
+        throwIfGroupCancelled,
+      )
+      if (cachedUrlInfo) {
+        return {
+          url: cachedUrlInfo.url,
+          musicInfo: cachedUrlInfo.resolvedMusicInfo ?? musicInfo,
+          quality: itemQuality,
+          isFromCache: true,
+        }
+      }
 
-  const task = createMusicUrlRequestTask(musicInfo, itemQuality)
-  const timedTask = applyTaskTimeout(task, taskOptions?.urlTimeout)
-  setCancel(timedTask.cancel)
-  try {
-    const { url, type } = await timedTask.promise
-    throwIfCancelled()
-    await verifyPlayableUrlIfNeeded(url, setCancel, throwIfCancelled, taskOptions?.skipUserApiVerify)
-    return { musicInfo, url, quality: type, isFromCache: false }
-  } catch (err: any) {
-    if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
-    console.log(err)
-    const nextTask = getOnlineOtherSourceMusicUrlTask({ musicInfos, quality, onToggleSource, isRefresh, retryedSource, taskOptions })
-    setCancel(nextTask.cancel)
-    return nextTask.promise
-  }
+      const task = createMusicUrlRequestTask(musicInfo, itemQuality)
+      const timedTask = applyTaskTimeout(task, taskOptions?.urlTimeout)
+      setGroupCancel(timedTask.cancel)
+      try {
+        const { url, type } = await timedTask.promise
+        throwIfGroupCancelled()
+        await verifyPlayableUrlIfNeeded(url, setGroupCancel, throwIfGroupCancelled, taskOptions?.skipUserApiVerify)
+        return { musicInfo, url, quality: type, isFromCache: false }
+      } catch (err: any) {
+        if (err.message == requestMsg.cancelRequest) throw err
+        console.log(err)
+        lastError = err instanceof Error ? err : new Error(String(err))
+      }
+    }
+    if (lastError) throw lastError
+    if (!hasTriedCandidate) throw new Error(window.i18n.t('toggle_source_failed'))
+    throw new Error(window.i18n.t('toggle_source_failed'))
+  })
+
+  const maxConcurrency = Math.max(1, Math.min(OTHER_SOURCE_GROUP_CONCURRENCY, sourceGroups.length))
+  const activeTasks = new Set<CancelableTask<{
+    url: string
+    musicInfo: LX.Music.MusicInfoOnline
+    quality: LX.Quality
+    isFromCache: boolean
+  }>>()
+  setCancel(() => {
+    for (const task of activeTasks) task.cancel()
+  })
+
+  let nextIndex = 0
+  let activeCount = 0
+  let settled = false
+  let lastError: Error | null = null
+
+  return await new Promise<{
+    url: string
+    musicInfo: LX.Music.MusicInfoOnline
+    quality: LX.Quality
+    isFromCache: boolean
+  }>((resolve, reject) => {
+    const finishWithError = (error?: Error | null) => {
+      if (settled) return
+      settled = true
+      for (const task of activeTasks) task.cancel()
+      activeTasks.clear()
+      reject(error ?? new Error(window.i18n.t('toggle_source_failed')))
+    }
+    const launchNext = () => {
+      if (settled) return
+      while (activeCount < maxConcurrency && nextIndex < sourceGroups.length) {
+        const groupTask = createSourceGroupTask(sourceGroups[nextIndex++].musicInfos)
+        activeTasks.add(groupTask)
+        activeCount++
+        void groupTask.promise.then(result => {
+          activeTasks.delete(groupTask)
+          activeCount--
+          if (settled) return
+          settled = true
+          for (const task of activeTasks) task.cancel()
+          activeTasks.clear()
+          resolve(result)
+        }).catch((err: any) => {
+          activeTasks.delete(groupTask)
+          activeCount--
+          if (settled) return
+          if (err.message == requestMsg.cancelRequest) {
+            finishWithError(err)
+            return
+          }
+          lastError = err instanceof Error ? err : new Error(String(err))
+          if (nextIndex < sourceGroups.length) {
+            launchNext()
+            return
+          }
+          if (activeCount === 0) finishWithError(lastError)
+        })
+      }
+      if (!activeCount && nextIndex >= sourceGroups.length) finishWithError(lastError)
+    }
+
+    launchNext()
+  })
 })
 
 /**
@@ -540,9 +845,25 @@ export const handleGetOnlineMusicUrlTask = ({ musicInfo, quality, onToggleSource
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
   // console.log(musicInfo.source)
   const targetQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
+  const cacheSourceId = appSetting['common.apiSource']
 
-  const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
-  if (cachedUrl && canUseMusicUrlCache(isRefresh)) return { musicInfo, url: cachedUrl, quality: targetQuality, isFromCache: true }
+  const cachedUrlInfo = await tryUseCachedMusicUrlInfo(
+    musicInfo,
+    targetQuality,
+    isRefresh,
+    cacheSourceId,
+    taskOptions,
+    setCancel,
+    throwIfCancelled,
+  )
+  if (cachedUrlInfo) {
+    return {
+      musicInfo: cachedUrlInfo.resolvedMusicInfo ?? musicInfo,
+      url: cachedUrlInfo.url,
+      quality: targetQuality,
+      isFromCache: true,
+    }
+  }
 
   const task = applyTaskTimeout(createMusicUrlRequestTask(musicInfo, targetQuality), taskOptions?.urlTimeout)
   setCancel(task.cancel)
@@ -583,44 +904,43 @@ export const handleGetOnlineMusicUrlTask = ({ musicInfo, quality, onToggleSource
 })
 
 
-export const getOnlineOtherSourcePicUrl = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [] }: {
+export const getOnlineOtherSourcePicUrl = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [], taskOptions }: {
   musicInfos: LX.Music.MusicInfoOnline[]
   onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
   isRefresh: boolean
   retryedSource?: LX.OnlineSource[]
+  taskOptions?: MusicUrlTaskOptions
 }): Promise<{
   url: string
   musicInfo: LX.Music.MusicInfoOnline
   isFromCache: boolean
 }> => {
-  let musicInfo: LX.Music.MusicInfoOnline | null = null
-  // eslint-disable-next-line no-cond-assign
-  while (musicInfo = (musicInfos.shift()!)) {
-    if (retryedSource.includes(musicInfo.source)) continue
-    retryedSource.push(musicInfo.source)
-    // if (!assertApiSupport(musicInfo.source)) continue
-    console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
-    onToggleSource(musicInfo)
-    break
+  const sourceGroups = groupOtherSourceMusicCandidates(musicInfos, retryedSource)
+  let lastError: Error | null = null
+  let hasTriedCandidate = false
+  for (const { musicInfos: sourceMusicInfos } of sourceGroups) {
+    let currentSourceMusicInfo: LX.Music.MusicInfoOnline | null = null
+    for (const musicInfo of sourceMusicInfos) {
+      if (!currentSourceMusicInfo) {
+        currentSourceMusicInfo = musicInfo
+        console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
+        onToggleSource(musicInfo)
+      }
+      hasTriedCandidate = true
+      if (musicInfo.meta.picUrl && !isRefresh) return { musicInfo, url: musicInfo.meta.picUrl, isFromCache: true }
+      try {
+        const task = applyTaskTimeout(createMusicPicRequestTask(musicInfo), taskOptions?.urlTimeout)
+        const url = await task.promise
+        return { musicInfo, url, isFromCache: false }
+      } catch (err: any) {
+        console.log(err)
+        lastError = err instanceof Error ? err : new Error(String(err))
+      }
+    }
   }
-  if (!musicInfo) throw new Error(window.i18n.t('toggle_source_failed'))
-
-  if (musicInfo.meta.picUrl && !isRefresh) return { musicInfo, url: musicInfo.meta.picUrl, isFromCache: true }
-
-  let reqPromise
-  try {
-    reqPromise = musicSdk[musicInfo.source].getPic(toOldMusicInfo(musicInfo))
-  } catch (err: any) {
-    reqPromise = Promise.reject(err)
-  }
-  // retryedSource.includes(musicInfo.source)
-  return reqPromise.then((url: string) => {
-    return { musicInfo, url, isFromCache: false }
-    // eslint-disable-next-line @typescript-eslint/promise-function-async
-  }).catch((err: any) => {
-    console.log(err)
-    return getOnlineOtherSourcePicUrl({ musicInfos, onToggleSource, isRefresh, retryedSource })
-  })
+  if (lastError) throw lastError
+  if (!hasTriedCandidate) throw new Error(window.i18n.t('toggle_source_failed'))
+  throw new Error(window.i18n.t('toggle_source_failed'))
 }
 
 /**
@@ -636,16 +956,10 @@ export const handleGetOnlinePicUrl = async({ musicInfo, isRefresh, onToggleSourc
   musicInfo: LX.Music.MusicInfoOnline
   isFromCache: boolean
 }> => {
-  // console.log(musicInfo.source)
-  let reqPromise
   try {
-    reqPromise = musicSdk[musicInfo.source].getPic(toOldMusicInfo(musicInfo))
-  } catch (err) {
-    reqPromise = Promise.reject(err)
-  }
-  return reqPromise.then((url: string) => {
+    const url = await createMusicPicRequestTask(musicInfo).promise
     return { musicInfo, url, isFromCache: false }
-  }).catch(async(err: any) => {
+  } catch (err: any) {
     console.log(err)
     if (!allowToggleSource) throw err
     onToggleSource()
@@ -662,57 +976,55 @@ export const handleGetOnlinePicUrl = async({ musicInfo, isRefresh, onToggleSourc
       }
       throw err
     })
-  })
+  }
 }
 
 
-export const getOnlineOtherSourceLyricInfo = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [] }: {
+export const getOnlineOtherSourceLyricInfo = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [], taskOptions }: {
   musicInfos: LX.Music.MusicInfoOnline[]
   onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
   isRefresh: boolean
   retryedSource?: LX.OnlineSource[]
+  taskOptions?: MusicUrlTaskOptions
 }): Promise<{
   lyricInfo: LX.Music.LyricInfo | LX.Player.LyricInfo
   musicInfo: LX.Music.MusicInfoOnline
   isFromCache: boolean
 }> => {
-  let musicInfo: LX.Music.MusicInfoOnline | null = null
-  // eslint-disable-next-line no-cond-assign
-  while (musicInfo = (musicInfos.shift()!)) {
-    if (retryedSource.includes(musicInfo.source)) continue
-    retryedSource.push(musicInfo.source)
-    // if (!assertApiSupport(musicInfo.source)) continue
-    console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
-    onToggleSource(musicInfo)
-    break
+  const sourceGroups = groupOtherSourceMusicCandidates(musicInfos, retryedSource)
+  let lastError: Error | null = null
+  let hasTriedCandidate = false
+  for (const { musicInfos: sourceMusicInfos } of sourceGroups) {
+    let currentSourceMusicInfo: LX.Music.MusicInfoOnline | null = null
+    for (const musicInfo of sourceMusicInfos) {
+      if (!currentSourceMusicInfo) {
+        currentSourceMusicInfo = musicInfo
+        console.log('try toggle to: ', musicInfo.source, musicInfo.name, musicInfo.singer, musicInfo.interval)
+        onToggleSource(musicInfo)
+      }
+      hasTriedCandidate = true
+      if (!isRefresh) {
+        const lyricInfo = await getCachedLyricInfo(musicInfo)
+        if (lyricInfo) return { musicInfo, lyricInfo, isFromCache: true }
+      }
+      try {
+        const task = applyTaskTimeout(createMusicLyricRequestTask(musicInfo), taskOptions?.urlTimeout)
+        const lyricInfo = await task.promise
+        if (!hasUsableLyricInfo(lyricInfo)) throw new Error('failed')
+        return {
+          lyricInfo,
+          musicInfo,
+          isFromCache: false,
+        }
+      } catch (err: any) {
+        console.log(err)
+        lastError = err instanceof Error ? err : new Error(String(err))
+      }
+    }
   }
-  if (!musicInfo) throw new Error(window.i18n.t('toggle_source_failed'))
-
-  if (!isRefresh) {
-    const lyricInfo = await getCachedLyricInfo(musicInfo)
-    if (lyricInfo) return { musicInfo, lyricInfo, isFromCache: true }
-  }
-
-  let reqPromise
-  try {
-    // TODO: remove any type
-    reqPromise = (musicSdk[musicInfo.source].getLyric(toOldMusicInfo(musicInfo)) as any).promise
-  } catch (err: any) {
-    reqPromise = Promise.reject(err)
-  }
-  // retryedSource.includes(musicInfo.source)
-  // eslint-disable-next-line @typescript-eslint/promise-function-async
-  return reqPromise.then((lyricInfo: LX.Music.LyricInfo) => {
-    return existTimeExp.test(lyricInfo.lyric) ? {
-      lyricInfo,
-      musicInfo,
-      isFromCache: false,
-    } : Promise.reject(new Error('failed'))
-    // eslint-disable-next-line @typescript-eslint/promise-function-async
-  }).catch((err: any) => {
-    console.log(err)
-    return getOnlineOtherSourceLyricInfo({ musicInfos, onToggleSource, isRefresh, retryedSource })
-  })
+  if (lastError) throw lastError
+  if (!hasTriedCandidate) throw new Error(window.i18n.t('toggle_source_failed'))
+  throw new Error(window.i18n.t('toggle_source_failed'))
 }
 
 /**
@@ -728,22 +1040,14 @@ export const handleGetOnlineLyricInfo = async({ musicInfo, onToggleSource, isRef
   lyricInfo: LX.Music.LyricInfo | LX.Player.LyricInfo
   isFromCache: boolean
 }> => {
-  // console.log(musicInfo.source)
-  let reqPromise
   try {
-    // TODO: remove any type
-    reqPromise = (musicSdk[musicInfo.source].getLyric(toOldMusicInfo(musicInfo)) as any).promise
-  } catch (err) {
-    reqPromise = Promise.reject(err)
-  }
-  // eslint-disable-next-line @typescript-eslint/promise-function-async
-  return reqPromise.then((lyricInfo: LX.Music.LyricInfo) => {
-    return existTimeExp.test(lyricInfo.lyric) ? {
+    const lyricInfo = await createMusicLyricRequestTask(musicInfo).promise
+    return hasUsableLyricInfo(lyricInfo) ? {
       musicInfo,
       lyricInfo,
       isFromCache: false,
     } : Promise.reject(new Error('failed'))
-  }).catch(async(err: any) => {
+  } catch (err: any) {
     console.log(err)
     if (!allowToggleSource) throw err
 
@@ -761,5 +1065,5 @@ export const handleGetOnlineLyricInfo = async({ musicInfo, onToggleSource, isRef
       }
       throw err
     })
-  })
+  }
 }

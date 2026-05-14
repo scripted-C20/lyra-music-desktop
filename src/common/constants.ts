@@ -57,6 +57,7 @@ export const getSourceSearchTimeoutWithBufferMs = (value: unknown, bufferMs: num
 export const DATA_KEYS = {
   viewPrevState: 'viewPrevState',
   playInfo: 'playInfo',
+  resolvedSourceMemory: 'resolvedSourceMemory',
   searchHistoryList: 'searchHistoryList',
   listScrollPosition: 'listScrollPosition',
   listPrevSelectId: 'listPrevSelectId',

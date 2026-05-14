@@ -14,6 +14,11 @@ const delaySavePlayInfo = throttle(savePlayInfo, 2000)
 
 export default () => {
   let restorePlayTime = 0
+  const clampToDuration = (time: number, duration = getDuration()) => {
+    if (!Number.isFinite(time) || time <= 0) return 0
+    if (!Number.isFinite(duration) || duration <= 0) return time
+    return Math.min(time, duration)
+  }
   const mediaBuffer: {
     timeout: NodeJS.Timeout | null
     playTime: number
@@ -87,15 +92,16 @@ export default () => {
   const setProgress = (time: number, maxTime?: number) => {
     if (!musicInfo.id) return
     if (maxTime != null) setMaxplayTime(maxTime)
+    const nextTime = clampToDuration(time, maxTime ?? playProgress.maxPlayTime)
     console.log('setProgress', time, maxTime)
-    if (time > 0) restorePlayTime = time
+    if (nextTime > 0) restorePlayTime = nextTime
     if (mediaBuffer.playTime) {
       clearBufferTimeout()
-      mediaBuffer.playTime = time
+      mediaBuffer.playTime = nextTime
       startBuffering()
     }
-    setNowPlayTime(time)
-    setCurrentTime(time)
+    setNowPlayTime(nextTime)
+    setCurrentTime(nextTime)
 
     // if (!isPlay) audio.play()
   }
@@ -115,7 +121,13 @@ export default () => {
   }
 
   const handleLoadeddata = () => {
-    setMaxplayTime(getDuration())
+    const duration = getDuration()
+    setMaxplayTime(duration)
+    const currentTime = clampToDuration(getCurrentTime(), duration)
+    if (currentTime !== getCurrentTime()) setCurrentTime(currentTime)
+    setNowPlayTime(currentTime)
+    restorePlayTime = clampToDuration(restorePlayTime, duration)
+    mediaBuffer.playTime = clampToDuration(mediaBuffer.playTime, duration)
 
     if (playMusicInfo.musicInfo && 'source' in playMusicInfo.musicInfo && !playMusicInfo.musicInfo.interval) {
       // console.log(formatPlayTime2(playProgress.maxPlayTime))
@@ -136,11 +148,11 @@ export default () => {
     console.log('handlePlaying', mediaBuffer.playTime, restorePlayTime)
     clearBufferTimeout()
     if (mediaBuffer.playTime) {
-      let playTime = mediaBuffer.playTime
+      let playTime = clampToDuration(mediaBuffer.playTime)
       mediaBuffer.playTime = 0
       setCurrentTime(playTime)
     } else if (restorePlayTime) {
-      setCurrentTime(restorePlayTime)
+      setCurrentTime(clampToDuration(restorePlayTime))
       restorePlayTime = 0
     }
   }

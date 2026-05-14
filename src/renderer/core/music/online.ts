@@ -2,19 +2,16 @@ import { updateListMusics } from '@renderer/store/list/action'
 import { appSetting } from '@renderer/store/setting'
 import {
   saveLyric,
-  saveMusicUrl,
-  getMusicUrl as getStoreMusicUrl,
 } from '@renderer/utils/ipc'
 import { requestMsg } from '@renderer/utils/message'
 import {
   buildLyricInfo,
-  canUseMusicUrlCache,
-  getPlayQuality,
+  getCurrentResolvedSourceMusicInfo,
   handleGetOnlineLyricInfo,
   handleGetOnlineMusicUrlTask,
   handleGetOnlinePicUrl,
   getCachedLyricInfo,
-  isUserApiSourceSelected,
+  saveCachedMusicUrl,
   type CancelableTask,
   type MusicUrlTaskOptions,
 } from './utils'
@@ -54,12 +51,13 @@ export const getMusicUrl = async({ musicInfo, quality, isRefresh, allowToggleSou
   return createGetMusicUrlTask({ musicInfo, quality, isRefresh, allowToggleSource, onToggleSource, taskOptions }).promise
 }
 
-export const createGetMusicUrlTask = ({ musicInfo, quality, isRefresh, allowToggleSource = true, onToggleSource = () => {}, taskOptions }: {
+export const createGetMusicUrlTask = ({ musicInfo, quality, isRefresh, allowToggleSource = true, onToggleSource = () => {}, onResolvedMusicInfo, taskOptions }: {
   musicInfo: LX.Music.MusicInfoOnline
   quality?: LX.Quality
   isRefresh: boolean
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  onResolvedMusicInfo?: (musicInfo: LX.Music.MusicInfoOnline) => void
   taskOptions?: MusicUrlTaskOptions
 }): CancelableTask<string> => {
   // if (!musicInfo._types[type]) {
@@ -68,7 +66,6 @@ export const createGetMusicUrlTask = ({ musicInfo, quality, isRefresh, allowTogg
 
   //   // return Promise.reject(new Error('该歌曲没有可播放的音频'))
   // }
-  const targetQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
   let isCancelled = false
   let cancelTask = () => {}
   return {
@@ -77,17 +74,14 @@ export const createGetMusicUrlTask = ({ musicInfo, quality, isRefresh, allowTogg
       cancelTask()
     },
     promise: (async() => {
-      const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
-      if (cachedUrl && canUseMusicUrlCache(isRefresh)) return cachedUrl
-
+      const cacheSourceId = appSetting['common.apiSource']
       const task = handleGetOnlineMusicUrlTask({ musicInfo, quality, onToggleSource, isRefresh, allowToggleSource, taskOptions })
       cancelTask = task.cancel
       const { url, quality: resolvedQuality, musicInfo: targetMusicInfo, isFromCache } = await task.promise
       if (isCancelled) throw new Error(requestMsg.cancelRequest)
-      if (!isUserApiSourceSelected()) {
-        if (targetMusicInfo.id != musicInfo.id && !isFromCache) void saveMusicUrl(targetMusicInfo, resolvedQuality, url)
-        void saveMusicUrl(musicInfo, resolvedQuality, url)
-      }
+      onResolvedMusicInfo?.(targetMusicInfo)
+      if (targetMusicInfo.id != musicInfo.id && !isFromCache) void saveCachedMusicUrl(targetMusicInfo, resolvedQuality, url, cacheSourceId, targetMusicInfo)
+      void saveCachedMusicUrl(musicInfo, resolvedQuality, url, cacheSourceId, targetMusicInfo)
       return url
     })(),
   }
@@ -111,12 +105,51 @@ export const getPicUrl = async({ musicInfo, listId, isRefresh, allowToggleSource
     return url
   })
 }
+const tryGetCurrentResolvedSourceLyricInfo = async({ musicInfo, isRefresh, onToggleSource }: {
+  musicInfo: LX.Music.MusicInfoOnline
+  isRefresh: boolean
+  onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
+}) => {
+  const resolvedMusicInfo = getCurrentResolvedSourceMusicInfo(musicInfo)
+  if (!resolvedMusicInfo) return null
+
+  if (!isRefresh) {
+    const lyricInfo = await getCachedLyricInfo(resolvedMusicInfo)
+    if (lyricInfo) {
+      void saveLyric(musicInfo, lyricInfo)
+      return buildLyricInfo(lyricInfo)
+    }
+  }
+
+  try {
+    const { lyricInfo, musicInfo: targetMusicInfo, isFromCache } = await handleGetOnlineLyricInfo({
+      musicInfo: resolvedMusicInfo,
+      onToggleSource,
+      isRefresh,
+      allowToggleSource: false,
+    })
+    void saveLyric(musicInfo, lyricInfo)
+    if (!isFromCache) void saveLyric(targetMusicInfo, lyricInfo)
+    return buildLyricInfo(lyricInfo)
+  } catch (err: any) {
+    if (err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+  }
+
+  return null
+}
 export const getLyricInfo = async({ musicInfo, isRefresh, allowToggleSource = true, onToggleSource = () => {} }: {
   musicInfo: LX.Music.MusicInfoOnline
   isRefresh: boolean
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
 }): Promise<LX.Player.LyricInfo> => {
+  const resolvedLyricInfo = await tryGetCurrentResolvedSourceLyricInfo({
+    musicInfo,
+    isRefresh,
+    onToggleSource,
+  })
+  if (resolvedLyricInfo) return resolvedLyricInfo
+
   if (!isRefresh) {
     const lyricInfo = await getCachedLyricInfo(musicInfo)
     if (lyricInfo) return buildLyricInfo(lyricInfo)

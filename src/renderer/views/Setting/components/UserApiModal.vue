@@ -13,6 +13,12 @@
             :disabled="isBatchTestButtonDisabled()"
             @click="handleTestAllLatency"
           ) {{ getBatchTestButtonText() }}
+          base-btn(
+            min
+            :class="[$style.headerBtn, $style.headerBtnSecondary]"
+            :disabled="isBatchFullTestButtonDisabled()"
+            @click="handleTestAllFullLatency"
+          ) {{ getBatchFullTestButtonText() }}
           button(type="button" :class="$style.headerCloseBtn" :aria-label="$t('close')" @click="handleClose")
             line-icon(:icon="X" :size="18" :stroke-width="2.2")
       div(v-if="apiList.length" :class="$style.toolbar")
@@ -69,6 +75,12 @@
                 :disabled="isTestButtonDisabled(api.id)"
                 @click.stop="handleTestLatency(api)"
               ) {{ getTestButtonText(api.id) }}
+              base-btn(
+                min
+                :class="[$style.testBtn, $style.testBtnSecondary]"
+                :disabled="isFullTestButtonDisabled(api.id)"
+                @click.stop="handleTestFullLatency(api)"
+              ) {{ getFullTestButtonText(api.id) }}
               span(v-if="getDisplayTestState(api.id)" :class="[$style.testStatus, $style[`testStatus_${getDisplayTestState(api.id).status}`]]") {{ getTestSummary(api.id) }}
             p(v-if="getTestDetail(api.id)" :class="$style.testDetail") {{ getTestDetail(api.id) }}
           div(:class="$style.cardRight")
@@ -105,7 +117,6 @@
 
 <script>
 import { exportUserApi, importUserApi as importUserApiAction, openSaveDir, removeUserApi, showSelectDialog, setAllowShowUserApiUpdateAlert, getUserApiList, testUserApiLatency, cancelUserApiLatencyTest } from '@renderer/utils/ipc'
-import { getSourceSearchTimeoutMs } from '@common/constants'
 import { gzipData, readFile, saveStrToFile } from '@common/utils/nodejs'
 import { openUrl } from '@common/utils/electron'
 import { sourceNames, userApi } from '@renderer/store'
@@ -115,9 +126,9 @@ import { dialog } from '@renderer/plugins/Dialog'
 import musicSdk from '@renderer/utils/musicSdk'
 import { builtinOnlineSourceIds, getBuiltinFallbackSourceId } from '@renderer/utils/musicSdk/source-fallback'
 import { toNewMusicInfo } from '@renderer/utils'
+import { createPlaybackVerifyTask } from '@renderer/core/music/utils'
 import { requestMsg } from '@renderer/utils/message'
 import { httpFetch } from '@renderer/utils/request'
-import { createVerifyPlayableUrlTask as createPlayableUrlVerifyTask } from '@renderer/utils/verifyPlayableUrl'
 import { CircleHelp, ExternalLink, LoaderCircle, RefreshCw, X } from 'lucide-vue-next'
 
 import UserApiOnlineImportModal from './UserApiOnlineImportModal.vue'
@@ -156,6 +167,7 @@ const TEST_SEARCH_KEYWORDS = [
 const TEST_SEARCH_RESULT_LIMIT = 20
 const MAX_TEST_SAMPLES_PER_SOURCE = 8
 const BATCH_TEST_CONCURRENCY = 5
+const BATCH_FULL_TEST_CONCURRENCY = 5
 const USER_API_README_URL = 'https://lyswhut.github.io/lx-music-doc/desktop/custom-source'
 const USER_API_FAQ_URL = 'https://lyswhut.github.io/lx-music-doc/desktop/faq'
 const getSubscribeOriginFallbackName = (subscribeUrl) => {
@@ -176,11 +188,21 @@ const selectTestMusics = result => {
     .map(item => toNewMusicInfo(item))
 }
 const getLatencyTestSampleKey = musicInfo => `${musicInfo.source}_${musicInfo.id}`
+const cloneLatencyTestMusicInfo = musicInfo => {
+  if (!musicInfo) return musicInfo
+  if (typeof structuredClone == 'function') return structuredClone(musicInfo)
+  return JSON.parse(JSON.stringify(musicInfo))
+}
 const cloneLatencyTestSamples = samples => Object.fromEntries(Object.entries(samples ?? {}).map(([source, value]) => {
-  const list = Array.isArray(value) ? [...value] : value ? [value] : []
+  const list = (Array.isArray(value) ? value : value ? [value] : []).map(cloneLatencyTestMusicInfo)
   return [source, list]
 }).filter(([, list]) => list.length))
 const hasLatencyTestSamples = samples => Object.values(samples ?? {}).some(value => Array.isArray(value) ? value.length : !!value)
+const getLatencyTestSourceSamples = (samples, source) => {
+  const sampleValue = samples?.[source]
+  const list = (Array.isArray(sampleValue) ? sampleValue : sampleValue ? [sampleValue] : []).map(cloneLatencyTestMusicInfo)
+  return list.length ? { [source]: list } : {}
+}
 const removeLatencyTestSample = (samples, source, musicInfo) => {
   const nextSamples = cloneLatencyTestSamples(samples)
   const sampleList = nextSamples[source]
@@ -196,22 +218,12 @@ const formatSeconds = ms => {
   const fixed = seconds >= 10 ? seconds.toFixed(1) : seconds.toFixed(2)
   return fixed.replace(/\.0$/, '').replace(/(\.\d*[1-9])0$/, '$1')
 }
-const STRICT_PLAY_TEST_MIN_TIMEOUT = 15_000
-const STRICT_PLAY_TEST_MIN_PROGRESS = 0.15
-const STRICT_PLAY_TEST_MIN_PLAY_TIME = 800
-const STRICT_PLAY_TEST_TIMEOUT_BUFFER = 5_000
 const STOPPING_LATENCY_TEST_MESSAGE = '停止中...'
 const STOP_LATENCY_TEST_BUTTON_TEXT = '停止测试'
 const LATENCY_TEST_CANCEL_MESSAGE = 'Cancel request'
 const BATCH_SAMPLE_PREPARE_KEY = '__batch__'
 const createLatencyTestCancelError = () => new Error(LATENCY_TEST_CANCEL_MESSAGE)
-const getStrictPlayTestVerifyTimeout = sourceSearchTimeout => {
-  return Math.max(STRICT_PLAY_TEST_MIN_TIMEOUT, getSourceSearchTimeoutMs(sourceSearchTimeout) + STRICT_PLAY_TEST_TIMEOUT_BUFFER)
-}
-const createVerifyPlayableUrlTask = (url, timeout) => createPlayableUrlVerifyTask(url, {
-  timeout,
-  minProgress: STRICT_PLAY_TEST_MIN_PROGRESS,
-  minPlayTime: STRICT_PLAY_TEST_MIN_PLAY_TIME,
+const createStrictVerifyPlayableUrlTask = url => createPlaybackVerifyTask(url, {
   failedMessage: 'play verify failed',
   timeoutMessage: 'play verify timeout',
   cancelMessage: LATENCY_TEST_CANCEL_MESSAGE,
@@ -258,6 +270,7 @@ export default {
       pendingStopTestApiIds: [],
       isPreparingSamples: false,
       isBatchTesting: false,
+      batchTestMode: '',
       isBatchStopRequested: false,
       isExporting: false,
       isResubscribing: false,
@@ -446,8 +459,12 @@ export default {
       this.samplePrepareWaiters = {}
       for (const reject of waiters) reject?.(createLatencyTestCancelError())
     },
-    async waitForLatencyTestSamples(waiterKey = '') {
-      if (!waiterKey) return this.getLatencyTestSamples()
+    invalidateLatencyTestSamples() {
+      this.latencyTestSamples = null
+      this.latencyTestSamplesPromise = null
+    },
+    async waitForLatencyTestSamples(waiterKey = '', options = {}) {
+      if (!waiterKey) return this.getLatencyTestSamples(options)
       this.clearSamplePrepareWaiter(waiterKey)
       let rejectWaiter = () => {}
       const cancelPromise = new Promise((_resolve, reject) => {
@@ -456,7 +473,7 @@ export default {
       this.setSamplePrepareWaiter(waiterKey, rejectWaiter)
       if (this.isSamplePrepareStopRequested(waiterKey)) this.cancelSamplePrepareWaiter(waiterKey)
       return await Promise.race([
-        this.getLatencyTestSamples(),
+        this.getLatencyTestSamples(options),
         cancelPromise,
       ]).finally(() => {
         this.clearSamplePrepareWaiter(waiterKey, rejectWaiter)
@@ -732,15 +749,34 @@ export default {
       void setAllowShowUserApiUpdateAlert(api.id, enable)
     },
     getBatchTestButtonText() {
-      if (this.isBatchTesting) return `${STOP_LATENCY_TEST_BUTTON_TEXT} (${this.batchTestProgress.current}/${this.batchTestProgress.total})`
+      if (this.isBatchTesting && this.batchTestMode === 'quick') return `${STOP_LATENCY_TEST_BUTTON_TEXT} (${this.batchTestProgress.current}/${this.batchTestProgress.total})`
       if (this.isPreparingSamples) return this.$t('user_api__test_latency_preparing')
       return this.$t('user_api__btn_test_latency_all')
     },
     isBatchTestButtonDisabled() {
-      return !this.apiList.length || this.isExporting || this.isResubscribing || (!this.isBatchTesting && (this.isPreparingSamples || !!this.activeTestApiIds.length || !!this.preparingTestApiIds.length || !!this.pendingStopTestApiIds.length))
+      if (this.isBatchTesting) return this.batchTestMode !== 'quick'
+      return !this.apiList.length || this.isExporting || this.isResubscribing || (this.isPreparingSamples || !!this.activeTestApiIds.length || !!this.preparingTestApiIds.length || !!this.pendingStopTestApiIds.length)
+    },
+    getBatchFullTestButtonText() {
+      if (this.isBatchTesting && this.batchTestMode === 'full') return `${STOP_LATENCY_TEST_BUTTON_TEXT} (${this.batchTestProgress.current}/${this.batchTestProgress.total})`
+      if (this.isPreparingSamples && this.batchTestMode === 'full') return this.$t('user_api__test_latency_full_preparing')
+      return this.$t('user_api__btn_test_latency_all_full')
+    },
+    isBatchFullTestButtonDisabled() {
+      if (this.isBatchTesting) return this.batchTestMode !== 'full'
+      return !this.apiList.length || this.isExporting || this.isResubscribing || (this.isPreparingSamples || !!this.activeTestApiIds.length || !!this.preparingTestApiIds.length || !!this.pendingStopTestApiIds.length)
+    },
+    getRunningTestMode(apiId) {
+      if (!this.isApiTesting(apiId)) return ''
+      return this.testStates[apiId]?.mode ?? 'quick'
     },
     isTestButtonDisabled(apiId) {
-      return !this.isApiTesting(apiId) && this.isBusy
+      if (this.isApiTesting(apiId)) return this.getRunningTestMode(apiId) === 'full'
+      return this.isBusy
+    },
+    isFullTestButtonDisabled(apiId) {
+      if (this.isApiTesting(apiId)) return this.getRunningTestMode(apiId) === 'quick'
+      return this.isBusy
     },
     isRemoveButtonDisabled() {
       return this.isExporting || this.isResubscribing
@@ -757,18 +793,111 @@ export default {
         : this.$t('user_api__btn_resubscribe')
     },
     getTestButtonText(apiId) {
-      return this.isApiTesting(apiId)
+      return this.getRunningTestMode(apiId) === 'quick'
         ? STOP_LATENCY_TEST_BUTTON_TEXT
         : this.$t('user_api__btn_test_latency')
+    },
+    getFullTestButtonText(apiId) {
+      return this.getRunningTestMode(apiId) === 'full'
+        ? STOP_LATENCY_TEST_BUTTON_TEXT
+        : this.$t('user_api__btn_test_latency_full')
+    },
+    buildFullTestState(results, extra = {}) {
+      return {
+        mode: 'full',
+        status: 'testing',
+        currentSource: '',
+        currentQuality: '',
+        currentIndex: 0,
+        total: TEST_SOURCE_ORDER.length,
+        latency: 0,
+        results: [...results],
+        ...extra,
+      }
+    },
+    getFullTestCounts(results = []) {
+      return results.reduce((counts, entry) => {
+        if (entry?.status === 'success') counts.success++
+        else if (entry?.status === 'error') counts.error++
+        else counts.skipped++
+        return counts
+      }, {
+        success: 0,
+        error: 0,
+        skipped: 0,
+      })
+    },
+    formatFullTestResultItem(entry) {
+      const sourceName = this.getSourceDisplayName(entry.source)
+      if (entry.status === 'success') {
+        const latencyText = typeof entry.latency === 'number' ? ` ${formatSeconds(entry.latency)}s` : ''
+        const qualityText = entry.quality ? ` · ${entry.quality}` : ''
+        return `${sourceName}${latencyText}${qualityText}`
+      }
+      return `${sourceName}: ${entry.message || this.$t('user_api__test_latency_failed')}`
+    },
+    getFullTestSummary(state) {
+      if (state.status === 'loading') return state.message || this.$t('user_api__test_latency_full_preparing')
+      if (state.status === 'testing') {
+        return this.$t('user_api__test_latency_full_progress', {
+          current: Math.max(0, Math.min(state.currentIndex || 0, state.total || TEST_SOURCE_ORDER.length)),
+          total: state.total || TEST_SOURCE_ORDER.length,
+        })
+      }
+      if (state.status === 'error' && !state.results?.length && state.message) return state.message
+      const counts = this.getFullTestCounts(state.results)
+      return this.$t('user_api__test_latency_full_summary', {
+        success: counts.success,
+        total: state.total || TEST_SOURCE_ORDER.length,
+      })
+    },
+    getFullTestDetail(state) {
+      if (state.status === 'loading') return state.message || ''
+      const results = Array.isArray(state.results) ? state.results : []
+      if (!results.length && state.status === 'error' && state.message) return state.message
+      const parts = []
+      if (state.status === 'testing' && state.currentSource) {
+        if (state.currentQuality) {
+          parts.push(this.$t('user_api__test_latency_verifying_source', {
+            source: this.getSourceDisplayName(state.currentSource),
+            quality: state.currentQuality,
+          }))
+        } else {
+          parts.push(this.$t('user_api__test_latency_full_progress_source', {
+            source: this.getSourceDisplayName(state.currentSource),
+            current: state.currentIndex || 0,
+            total: state.total || TEST_SOURCE_ORDER.length,
+          }))
+        }
+      }
+      const successItems = results.filter(entry => entry.status === 'success').map(entry => this.formatFullTestResultItem(entry))
+      const errorItems = results.filter(entry => entry.status === 'error').map(entry => this.formatFullTestResultItem(entry))
+      const skippedSources = TEST_SOURCE_ORDER
+        .filter(source => !results.some(entry => entry.source === source))
+        .map(source => this.getSourceDisplayName(source))
+      const skippedItems = results
+        .filter(entry => entry.status !== 'success' && entry.status !== 'error')
+        .map(entry => this.formatFullTestResultItem(entry))
+      if (successItems.length) parts.push(`${this.$t('user_api__test_latency_full_available')}: ${successItems.join(' / ')}`)
+      if (errorItems.length) parts.push(`${this.$t('user_api__test_latency_full_unavailable')}: ${errorItems.join(' / ')}`)
+      const pendingItems = [...skippedItems, ...skippedSources]
+      if (state.status !== 'testing' && pendingItems.length) parts.push(`${this.$t('user_api__test_latency_full_untested')}: ${pendingItems.join(' / ')}`)
+      if (!parts.length && state.message) return state.message
+      return parts.join(' · ')
     },
     getTestSummary(apiId) {
       const state = this.getDisplayTestState(apiId)
       if (!state) return ''
+      if (state.mode === 'full') return this.getFullTestSummary(state)
       switch (state.status) {
         case 'success':
-          return `${formatSeconds(state.latency)} s`
+          return state.source
+            ? `${this.getSourceDisplayName(state.source)} · ${formatSeconds(state.latency)} s`
+            : `${formatSeconds(state.latency)} s`
         case 'error':
-          return this.$t('user_api__test_latency_failed')
+          return state.source
+            ? `${this.getSourceDisplayName(state.source)} · ${this.$t('user_api__test_latency_failed')}`
+            : this.$t('user_api__test_latency_failed')
         default:
           return state.message
       }
@@ -776,8 +905,9 @@ export default {
     getTestDetail(apiId) {
       const state = this.getDisplayTestState(apiId)
       if (!state) return ''
+      if (state.mode === 'full') return this.getFullTestDetail(state)
       if (state.status === 'success' && state.source && state.quality) {
-        return `${this.$t('user_api__test_latency_total', { total: `${formatSeconds(state.latency)}s` })} · ${this.$t('user_api__test_latency_detail', {
+        return `${this.$t('user_api__test_latency_hit_source', { source: this.getSourceDisplayName(state.source) })} · ${this.$t('user_api__test_latency_total', { total: `${formatSeconds(state.latency)}s` })} · ${this.$t('user_api__test_latency_detail', {
           source: this.getSourceDisplayName(state.source),
           quality: state.quality,
           init: state.initLatency,
@@ -785,7 +915,21 @@ export default {
           verify: state.verifyLatency ?? 0,
         })}`
       }
-      if (state.status === 'error') return state.message
+      if (state.status === 'error') {
+        if (state.source && state.quality) {
+          return `${state.message} · ${this.$t('user_api__test_latency_last_source', {
+            source: this.getSourceDisplayName(state.source),
+            quality: state.quality,
+          })}`
+        }
+        return state.message
+      }
+      if (state.status === 'testing' && state.source && state.quality) {
+        return this.$t('user_api__test_latency_verifying_source', {
+          source: this.getSourceDisplayName(state.source),
+          quality: state.quality,
+        })
+      }
       return ''
     },
     getEmptyText() {
@@ -829,8 +973,11 @@ export default {
     getDisplayTestState(apiId) {
       if (this.queuedBatchTestApiIds.includes(apiId)) {
         return {
+          mode: this.batchTestMode || 'quick',
           status: 'loading',
-          message: this.$t('user_api__test_latency_preparing'),
+          message: this.batchTestMode === 'full'
+            ? this.$t('user_api__test_latency_full_preparing')
+            : this.$t('user_api__test_latency_preparing'),
         }
       }
       return this.testStates[apiId]
@@ -882,7 +1029,9 @@ export default {
     },
     stopLatencyTest(apiId) {
       this.addPendingStopTestApiId(apiId)
+      const mode = this.testStates[apiId]?.mode
       this.setTestState(apiId, {
+        ...(mode ? { mode } : {}),
         status: 'loading',
         message: STOPPING_LATENCY_TEST_MESSAGE,
       })
@@ -915,7 +1064,8 @@ export default {
       if (samples.length) return samples
       throw new Error(`${this.getSourceDisplayName(source)} ${this.$t('user_api__test_latency_search_failed')}`)
     },
-    async getLatencyTestSamples() {
+    async getLatencyTestSamples(options = {}) {
+      if (options.forceRefresh && !this.latencyTestSamplesPromise) this.invalidateLatencyTestSamples()
       if (this.latencyTestSamples) return this.latencyTestSamples
       if (this.latencyTestSamplesPromise) return this.latencyTestSamplesPromise
       this.isPreparingSamples = true
@@ -969,61 +1119,75 @@ export default {
           return message
       }
     },
+    async executeLatencyTest(apiId, samples, onRequestResult = null) {
+      const startedAt = Date.now()
+      let remainingSamples = cloneLatencyTestSamples(samples)
+      let lastVerifyError = null
+
+      while (hasLatencyTestSamples(remainingSamples)) {
+        this.throwIfLatencyTestStopped(apiId)
+        const result = this.normalizeLatencyResult(await testUserApiLatency({
+          id: apiId,
+          samples: remainingSamples,
+        }))
+        this.throwIfLatencyTestStopped(apiId)
+        if (!result.url) throw new Error('未获取到有效播放链接')
+        void getUserApiList().then((list) => {
+          userApi.list = list
+        }).catch(() => {})
+        onRequestResult?.(result)
+
+        try {
+          this.throwIfLatencyTestStopped(apiId)
+          const verifyTask = createStrictVerifyPlayableUrlTask(result.url)
+          this.setVerifyTask(apiId, verifyTask)
+          const verifyLatency = await verifyTask.promise.finally(() => {
+            this.clearVerifyTask(apiId, verifyTask)
+          })
+          this.throwIfLatencyTestStopped(apiId)
+          return this.normalizeLatencyResult({
+            ...result,
+            verifyLatency,
+            latency: Date.now() - startedAt,
+          })
+        } catch (err) {
+          if (this.isLatencyTestCancelError(err)) throw err
+          lastVerifyError = err
+          if (!result.source || !result.musicInfo) throw err
+          remainingSamples = removeLatencyTestSample(remainingSamples, result.source, result.musicInfo)
+        }
+      }
+
+      throw lastVerifyError instanceof Error ? lastVerifyError : new Error('未获取到有效播放链接')
+    },
     async runLatencyTest(api, samples) {
       this.addActiveTestApiId(api.id)
       this.setTestState(api.id, {
+        mode: 'quick',
         status: 'testing',
         message: this.$t('user_api__test_latency_testing'),
       })
+      let lastAttemptResult = null
       try {
-        const startedAt = Date.now()
-        let remainingSamples = cloneLatencyTestSamples(samples)
-        let lastVerifyError = null
-
-        while (hasLatencyTestSamples(remainingSamples)) {
-          this.throwIfLatencyTestStopped(api.id)
-          const result = this.normalizeLatencyResult(await testUserApiLatency({
-            id: api.id,
-            samples: remainingSamples,
-          }))
-          this.throwIfLatencyTestStopped(api.id)
-          if (!result.url) throw new Error('未获取到有效播放链接')
-          void getUserApiList().then((list) => {
-            userApi.list = list
-          }).catch(() => {})
+        const strictResult = await this.executeLatencyTest(api.id, samples, result => {
+          lastAttemptResult = {
+            source: result.source,
+            quality: result.quality,
+            musicInfo: result.musicInfo,
+          }
           this.setTestState(api.id, {
             ...result,
+            mode: 'quick',
             status: 'testing',
             message: this.$t('user_api__test_latency_verifying'),
           })
-
-          try {
-            this.throwIfLatencyTestStopped(api.id)
-            const verifyTask = createVerifyPlayableUrlTask(result.url, getStrictPlayTestVerifyTimeout(appSetting['common.sourceSearchTimeout']))
-            this.setVerifyTask(api.id, verifyTask)
-            const verifyLatency = await verifyTask.promise.finally(() => {
-              this.clearVerifyTask(api.id, verifyTask)
-            })
-            this.throwIfLatencyTestStopped(api.id)
-            const strictResult = this.normalizeLatencyResult({
-              ...result,
-              verifyLatency,
-              latency: Date.now() - startedAt,
-            })
-            this.setTestState(api.id, {
-              ...strictResult,
-              status: 'success',
-            })
-            return true
-          } catch (err) {
-            if (this.isLatencyTestCancelError(err)) throw err
-            lastVerifyError = err
-            if (!result.source || !result.musicInfo) throw err
-            remainingSamples = removeLatencyTestSample(remainingSamples, result.source, result.musicInfo)
-          }
-        }
-
-        throw lastVerifyError instanceof Error ? lastVerifyError : new Error('未获取到有效播放链接')
+        })
+        this.setTestState(api.id, {
+          ...strictResult,
+          mode: 'quick',
+          status: 'success',
+        })
+        return true
       } catch (err) {
         const message = this.normalizeLatencyTestErrorMessage(err)
         if (message === requestMsg.cancelRequest) {
@@ -1032,10 +1196,111 @@ export default {
           return null
         }
         this.setTestState(api.id, {
+          mode: 'quick',
           status: 'error',
           message,
+          source: lastAttemptResult?.source,
+          quality: lastAttemptResult?.quality,
         })
         return false
+      } finally {
+        this.clearVerifyTask(api.id)
+        this.removeActiveTestApiId(api.id)
+        this.removePendingStopTestApiId(api.id)
+      }
+    },
+    async runFullLatencyTest(api, samples) {
+      this.addActiveTestApiId(api.id)
+      const total = TEST_SOURCE_ORDER.length
+      const results = []
+      const startedAt = Date.now()
+      this.setTestState(api.id, this.buildFullTestState(results, {
+        status: 'testing',
+        message: this.$t('user_api__test_latency_full_testing'),
+      }))
+      try {
+        for (const [index, source] of TEST_SOURCE_ORDER.entries()) {
+          this.throwIfLatencyTestStopped(api.id)
+          const currentIndex = index + 1
+          const sourceSamples = getLatencyTestSourceSamples(samples, source)
+          this.setTestState(api.id, this.buildFullTestState(results, {
+            status: 'testing',
+            currentSource: source,
+            currentQuality: '',
+            currentIndex,
+            total,
+            message: this.$t('user_api__test_latency_full_progress_source', {
+              source: this.getSourceDisplayName(source),
+              current: currentIndex,
+              total,
+            }),
+          }))
+          if (!hasLatencyTestSamples(sourceSamples)) {
+            results.push({
+              source,
+              status: 'skipped',
+              message: this.$t('user_api__test_latency_search_failed'),
+            })
+            continue
+          }
+          let lastAttemptResult = {
+            source,
+            quality: '',
+          }
+          try {
+            const strictResult = await this.executeLatencyTest(api.id, sourceSamples, result => {
+              lastAttemptResult = {
+                source: result.source ?? source,
+                quality: result.quality ?? '',
+                musicInfo: result.musicInfo,
+              }
+              this.setTestState(api.id, this.buildFullTestState(results, {
+                status: 'testing',
+                currentSource: result.source ?? source,
+                currentQuality: result.quality ?? '',
+                currentIndex,
+                total,
+                message: this.$t('user_api__test_latency_verifying'),
+              }))
+            })
+            results.push({
+              ...strictResult,
+              source,
+              status: 'success',
+            })
+          } catch (err) {
+            if (this.isLatencyTestCancelError(err)) throw err
+            results.push({
+              source,
+              status: 'error',
+              quality: lastAttemptResult.quality,
+              message: this.normalizeLatencyTestErrorMessage(err),
+            })
+          }
+        }
+
+        const hasSuccess = results.some(entry => entry.status === 'success')
+        this.setTestState(api.id, this.buildFullTestState(results, {
+          status: hasSuccess ? 'success' : 'error',
+          total,
+          latency: Date.now() - startedAt,
+        }))
+        return hasSuccess
+      } catch (err) {
+        const message = this.normalizeLatencyTestErrorMessage(err)
+        if (message === requestMsg.cancelRequest) {
+          this.cancelVerifyTask(api.id)
+          this.removeTestState(api.id)
+          return null
+        }
+        const hasSuccess = results.some(entry => entry.status === 'success')
+        this.setTestState(api.id, this.buildFullTestState(results, {
+          status: hasSuccess ? 'success' : 'error',
+          total,
+          latency: Date.now() - startedAt,
+          message,
+        }))
+        return hasSuccess
       } finally {
         this.clearVerifyTask(api.id)
         this.removeActiveTestApiId(api.id)
@@ -1050,6 +1315,7 @@ export default {
       if (this.isBusy) return
       this.addPreparingTestApiId(api.id)
       this.setTestState(api.id, {
+        mode: 'quick',
         status: 'loading',
         message: this.$t('user_api__test_latency_preparing'),
       })
@@ -1074,14 +1340,45 @@ export default {
         this.removePendingStopTestApiId(api.id)
       }
     },
-    async handleTestAllLatency() {
-      if (this.isBatchTesting) {
-        this.stopAllLatencyTests()
+    async handleTestFullLatency(api) {
+      if (this.isApiTesting(api.id)) {
+        this.stopLatencyTest(api.id)
         return
       }
-      if (!this.apiList.length || this.isBusy) return
+      if (this.isBusy) return
+      this.addPreparingTestApiId(api.id)
+      this.setTestState(api.id, {
+        mode: 'full',
+        status: 'loading',
+        message: this.$t('user_api__test_latency_full_preparing'),
+      })
+      try {
+        const samples = await this.waitForLatencyTestSamples(api.id)
+        if (this.isPendingStopTestApi(api.id)) {
+          this.removeTestState(api.id)
+          return
+        }
+        await this.runFullLatencyTest(api, samples)
+      } catch (err) {
+        const message = this.normalizeLatencyTestErrorMessage(err)
+        if (message === requestMsg.cancelRequest) this.removeTestState(api.id)
+        else {
+          this.setTestState(api.id, this.buildFullTestState([], {
+            status: 'error',
+            message,
+          }))
+        }
+      } finally {
+        this.removePreparingTestApiId(api.id)
+        this.removePendingStopTestApiId(api.id)
+      }
+    },
+    async runBatchLatencyTest(mode) {
       const apiQueue = [...this.apiList]
+      const isFullMode = mode === 'full'
+      const concurrency = isFullMode ? BATCH_FULL_TEST_CONCURRENCY : BATCH_TEST_CONCURRENCY
       this.isBatchTesting = true
+      this.batchTestMode = mode
       this.isBatchStopRequested = false
       this.removedDuringBatchApiIds = []
       this.queuedBatchTestApiIds = apiQueue.map(api => api.id)
@@ -1092,7 +1389,9 @@ export default {
       let success = 0
       let fail = 0
       try {
-        const samples = await this.waitForLatencyTestSamples(BATCH_SAMPLE_PREPARE_KEY)
+        const samples = await this.waitForLatencyTestSamples(BATCH_SAMPLE_PREPARE_KEY, {
+          forceRefresh: !!this.latencyTestSamples && !this.latencyTestSamplesPromise,
+        })
         if (this.isBatchStopRequested) return
         let currentIndex = 0
         const runWorker = async() => {
@@ -1109,7 +1408,9 @@ export default {
               continue
             }
             this.removeQueuedBatchTestApiId(api.id)
-            const result = await this.runLatencyTest(api, samples)
+            const result = isFullMode
+              ? await this.runFullLatencyTest(api, samples)
+              : await this.runLatencyTest(api, samples)
             if (result === true) success++
             else if (result === false) fail++
             this.batchTestProgress = {
@@ -1119,16 +1420,19 @@ export default {
           }
         }
         await Promise.all(Array.from({
-          length: Math.max(1, Math.min(BATCH_TEST_CONCURRENCY, apiQueue.length)),
+          length: Math.max(1, Math.min(concurrency, apiQueue.length)),
         }, async() => {
           await runWorker()
         }))
-        if (!this.isBatchStopRequested) await dialog(this.$t('user_api__test_latency_batch_result', { success, fail }))
+        if (!this.isBatchStopRequested) {
+          await dialog(this.$t(isFullMode ? 'user_api__test_latency_batch_full_result' : 'user_api__test_latency_batch_result', { success, fail }))
+        }
       } catch (err) {
         const message = this.normalizeLatencyTestErrorMessage(err)
         if (message !== requestMsg.cancelRequest) void dialog(message)
       } finally {
         this.isBatchTesting = false
+        this.batchTestMode = ''
         this.isBatchStopRequested = false
         this.removedDuringBatchApiIds = []
         this.clearQueuedBatchTestApiIds()
@@ -1137,6 +1441,22 @@ export default {
           total: this.apiList.length,
         }
       }
+    },
+    async handleTestAllLatency() {
+      if (this.isBatchTesting && this.batchTestMode === 'quick') {
+        this.stopAllLatencyTests()
+        return
+      }
+      if (!this.apiList.length || this.isBusy) return
+      await this.runBatchLatencyTest('quick')
+    },
+    async handleTestAllFullLatency() {
+      if (this.isBatchTesting && this.batchTestMode === 'full') {
+        this.stopAllLatencyTests()
+        return
+      }
+      if (!this.apiList.length || this.isBusy) return
+      await this.runBatchLatencyTest('full')
     },
   },
 }
@@ -1217,6 +1537,8 @@ export default {
   flex: none;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -1360,6 +1682,18 @@ export default {
 
   &:hover {
     border-color: var(--color-primary);
+    background: var(--color-primary-light-300-alpha-800);
+  }
+}
+
+.headerBtnSecondary {
+  color: var(--ui-text-secondary);
+  border-color: rgba(213, 213, 218, 0.92);
+  background: rgba(255, 255, 255, 0.74);
+
+  &:hover {
+    color: var(--ui-text-accent);
+    border-color: var(--color-primary-alpha-500);
     background: var(--color-primary-light-300-alpha-800);
   }
 }
@@ -1599,6 +1933,16 @@ export default {
   &:hover {
     border-color: var(--color-primary);
     background: var(--color-primary-light-300-alpha-800);
+  }
+}
+
+.testBtnSecondary {
+  color: var(--ui-text-secondary);
+  border-color: rgba(213, 213, 218, 0.92);
+
+  &:hover {
+    color: var(--ui-text-accent);
+    border-color: var(--color-primary-alpha-500);
   }
 }
 
@@ -1878,10 +2222,15 @@ export default {
     width: 100%;
     margin-left: 0;
     margin-top: 10px;
+    justify-content: stretch;
   }
 
   .headerBtn {
     width: 100%;
+  }
+
+  .headerCloseBtn {
+    margin-left: auto;
   }
 
   .toolbarActionBtn,

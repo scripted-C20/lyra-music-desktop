@@ -8,6 +8,7 @@ import { getScript } from './utils'
 
 let html: string | null = null
 let dir: string | null = null
+let userApiSessionSeed = 0
 
 const denyEvents = [
   'will-navigate',
@@ -63,6 +64,7 @@ export interface UserApiWindowController {
 
 export const createUserApiWindowController = (): UserApiWindowController => {
   let browserWindow: Electron.BrowserWindow | null = null
+  const sessionPartition = `lx-user-api-${++userApiSessionSeed}`
 
   const sendEvent = <T = any>(name: string, params?: T) => {
     if (!browserWindow) return
@@ -123,6 +125,7 @@ export const createUserApiWindowController = (): UserApiWindowController => {
         disableDialogs: true,
         webgl: false,
         images: false,
+        partition: sessionPartition,
         preload: assets.preloadUrl,
       },
     })

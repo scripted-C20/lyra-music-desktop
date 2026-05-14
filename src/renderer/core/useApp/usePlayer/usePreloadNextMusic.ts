@@ -6,29 +6,18 @@ import { musicInfo } from '@renderer/store/player/state'
 import { getNextPlayMusicInfo, resetRandomNextMusicInfo } from '@renderer/core/player'
 import { getPlaybackMusicUrlTaskOptions } from '@renderer/core/player/utils'
 import { createGetMusicUrlTask } from '@renderer/core/music'
+import { createPlaybackVerifyTask } from '@renderer/core/music/utils'
 import { savePreloadedMusicUrl } from '@renderer/core/player/musicUrlState'
+import { clearRuntimeSourceMemory, getPreferredResolvedSourceMusicInfo } from '@renderer/core/player/runtimeSourceMemory'
 import { appSetting } from '@renderer/store/setting'
+import { buildSavePath } from '@renderer/store/download/utils'
+import { getDownloadFilePath, getLocalFilePath } from '@renderer/utils/music'
 
-const PRELOAD_VERIFY_TIMEOUT = 10_000
-const PRELOAD_VERIFY_MIN_PROGRESS = 0.15
-const PRELOAD_VERIFY_MIN_PLAY_TIME = 800
-
-let audio: HTMLAudioElement
 let currentPreloadTask: ReturnType<typeof createGetMusicUrlTask> | null = null
 let activePreloadRequestId = ''
 let stopAudioCheck = () => {}
 const isActivePreloadRequest = (requestId: string) => activePreloadRequestId === requestId
 
-const initAudio = () => {
-  if (audio) return
-  audio = new Audio()
-  audio.controls = false
-  audio.preload = 'auto'
-  audio.crossOrigin = 'anonymous'
-  audio.muted = true
-  audio.volume = 0
-  audio.autoplay = false
-}
 const cancelPreloadTask = () => {
   activePreloadRequestId = ''
   currentPreloadTask?.cancel()
@@ -36,106 +25,54 @@ const cancelPreloadTask = () => {
   stopAudioCheck()
 }
 const checkMusicUrl = async(url: string, requestId: string): Promise<boolean> => {
-  initAudio()
-  return new Promise((resolve) => {
-    let isSettled = false
-    let timeoutId: NodeJS.Timeout | null = null
-    let playingStartedAt = 0
-    let hasStartedPlayback = false
-    let cancelCheck = () => {}
-
-    const cleanup = () => {
-      audio.removeEventListener('canplay', handleCanplay)
-      audio.removeEventListener('error', handleErr)
-      audio.removeEventListener('playing', handlePlaying)
-      audio.removeEventListener('timeupdate', handleTimeupdate)
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
-      audio.pause()
-      audio.removeAttribute('src')
-      audio.load()
-      if (stopAudioCheck === cancelCheck) stopAudioCheck = () => {}
-    }
-    const settle = (result: boolean) => {
-      if (isSettled) return
-      isSettled = true
-      cleanup()
-      resolve(result)
-    }
-    const ensureActiveRequest = () => {
-      if (activePreloadRequestId === requestId) return true
-      settle(false)
-      return false
-    }
-    const verifyPlayback = () => {
-      if (!ensureActiveRequest()) return
-      if (audio.currentTime >= PRELOAD_VERIFY_MIN_PROGRESS) {
-        settle(true)
-        return
-      }
-      if (playingStartedAt && audio.currentTime > 0 && Date.now() - playingStartedAt >= PRELOAD_VERIFY_MIN_PLAY_TIME) settle(true)
-    }
-    const startPlayback = () => {
-      if (!ensureActiveRequest()) return
-      if (hasStartedPlayback) return
-      hasStartedPlayback = true
-      const playPromise = audio.play()
-      if (typeof playPromise?.catch == 'function') {
-        playPromise.catch(() => {
-          settle(false)
-        })
-      }
-    }
-    const handleErr = () => {
-      settle(false)
-    }
-    const handleCanplay = () => {
-      startPlayback()
-    }
-    const handlePlaying = () => {
-      if (!ensureActiveRequest()) return
-      playingStartedAt ||= Date.now()
-      verifyPlayback()
-    }
-    const handleTimeupdate = () => {
-      if (!ensureActiveRequest()) return
-      if (!playingStartedAt && audio.currentTime > 0) playingStartedAt = Date.now()
-      verifyPlayback()
-    }
-
-    cancelCheck = () => {
-      settle(false)
-    }
-    stopAudioCheck = cancelCheck
-    audio.addEventListener('canplay', handleCanplay)
-    audio.addEventListener('error', handleErr)
-    audio.addEventListener('playing', handlePlaying)
-    audio.addEventListener('timeupdate', handleTimeupdate)
-    timeoutId = setTimeout(() => {
-      settle(false)
-    }, PRELOAD_VERIFY_TIMEOUT)
-    audio.src = url
-    audio.load()
-    startPlayback()
-  })
+  if (!isActivePreloadRequest(requestId)) return false
+  const verifyTask = createPlaybackVerifyTask(url)
+  const cancelCheck = () => {
+    verifyTask.cancel()
+  }
+  stopAudioCheck = cancelCheck
+  try {
+    await verifyTask.promise
+    return isActivePreloadRequest(requestId)
+  } catch {
+    return false
+  } finally {
+    if (stopAudioCheck === cancelCheck) stopAudioCheck = () => {}
+  }
 }
 const requestPreloadUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh: boolean, requestId: string) => {
-  if (!isActivePreloadRequest(requestId)) return ''
+  if (!isActivePreloadRequest(requestId)) return { url: '', resolvedMusicInfo: null as LX.Music.MusicInfo | LX.Download.ListItem | null }
+  let resolvedMusicInfo: LX.Music.MusicInfo | LX.Download.ListItem | null = null
   const task = createGetMusicUrlTask({
     musicInfo,
     isRefresh,
-    // Preload only needs one strict real-play validation below.
+    onResolvedMusicInfo(targetResolvedMusicInfo) {
+      resolvedMusicInfo = targetResolvedMusicInfo
+    },
+    // Preload reuses the same verify task as playback below.
     taskOptions: getPlaybackMusicUrlTaskOptions({ skipUserApiVerify: true }),
   })
   currentPreloadTask = task
   try {
     const url = await task.promise
-    return activePreloadRequestId === requestId ? url : ''
+    return activePreloadRequestId === requestId
+      ? {
+          url,
+          resolvedMusicInfo: resolvedMusicInfo ?? getPreferredResolvedSourceMusicInfo(musicInfo),
+        }
+      : { url: '', resolvedMusicInfo: null }
   } finally {
     if (currentPreloadTask === task) currentPreloadTask = null
   }
+}
+const shouldRetryPreloadWithRefresh = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
+  if ('progress' in musicInfo) {
+    return !(await getDownloadFilePath(musicInfo, buildSavePath(musicInfo)))
+  }
+  if (musicInfo.source == 'local') {
+    return !(await getLocalFilePath(musicInfo))
+  }
+  return true
 }
 
 const preloadMusicInfo = {
@@ -163,22 +100,28 @@ const preloadNextMusicUrl = async(curTime: number) => {
     let hasPreloadedUrl = false
     preloadMusicInfo.info = info
     try {
-      let url = await requestPreloadUrl(info.musicInfo, false, requestId).catch(() => '')
+      let preloadResult = await requestPreloadUrl(info.musicInfo, false, requestId).catch(() => ({ url: '', resolvedMusicInfo: null }))
       if (!isActivePreloadRequest(requestId)) return
-      if (url) {
+      if (preloadResult.url) {
+        let { url, resolvedMusicInfo } = preloadResult
         console.log('preload url', url)
         let result = await checkMusicUrl(url, requestId)
         if (!isActivePreloadRequest(requestId)) return
         if (!result) {
+          const canRetryWithRefresh = await shouldRetryPreloadWithRefresh(info.musicInfo)
           if (!isActivePreloadRequest(requestId)) return
-          url = await requestPreloadUrl(info.musicInfo, true, requestId).catch(() => '')
-          if (!isActivePreloadRequest(requestId)) return
-          result = url ? await checkMusicUrl(url, requestId) : false
-          if (!isActivePreloadRequest(requestId)) return
-          console.log('preload url refresh', url)
+          if (canRetryWithRefresh) {
+            preloadResult = await requestPreloadUrl(info.musicInfo, true, requestId).catch(() => ({ url: '', resolvedMusicInfo: null }))
+            if (!isActivePreloadRequest(requestId)) return
+            url = preloadResult.url
+            resolvedMusicInfo = preloadResult.resolvedMusicInfo
+            result = url ? await checkMusicUrl(url, requestId) : false
+            if (!isActivePreloadRequest(requestId)) return
+            console.log('preload url refresh', url)
+          }
         }
         if (result && url && activePreloadRequestId === requestId) {
-          savePreloadedMusicUrl(info.musicInfo, url)
+          savePreloadedMusicUrl(info.musicInfo, url, resolvedMusicInfo)
           hasPreloadedUrl = true
         }
       }
@@ -213,6 +156,7 @@ export default () => {
     preloadMusicInfo.preProgress = playProgress.nowPlayTime
   })
   watch(() => appSetting['common.apiSource'], () => {
+    clearRuntimeSourceMemory()
     cancelPreloadTask()
     preloadMusicInfo.isLoading = false
     preloadMusicInfo.info = null

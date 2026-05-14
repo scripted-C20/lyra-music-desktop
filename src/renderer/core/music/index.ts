@@ -52,6 +52,7 @@ export const createGetMusicUrlTask = ({
   quality,
   isRefresh = false,
   onToggleSource,
+  onResolvedMusicInfo,
   allowToggleSource,
   taskOptions,
 }: {
@@ -59,15 +60,16 @@ export const createGetMusicUrlTask = ({
   isRefresh?: boolean
   quality?: LX.Quality
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
+  onResolvedMusicInfo?: (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => void
   allowToggleSource?: boolean
   taskOptions?: MusicUrlTaskOptions
 }): CancelableTask<string> => {
   if ('progress' in musicInfo) {
-    return createDownloadGetMusicUrlTask({ musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
+    return createDownloadGetMusicUrlTask({ musicInfo, isRefresh, onToggleSource, onResolvedMusicInfo, allowToggleSource, taskOptions })
   } else if (musicInfo.source == 'local') {
-    return createLocalGetMusicUrlTask({ musicInfo, isRefresh, onToggleSource, allowToggleSource, taskOptions })
+    return createLocalGetMusicUrlTask({ musicInfo, isRefresh, onToggleSource, onResolvedMusicInfo, allowToggleSource, taskOptions })
   } else {
-    return createOnlineGetMusicUrlTask({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource, taskOptions })
+    return createOnlineGetMusicUrlTask({ musicInfo, isRefresh, quality, onToggleSource, onResolvedMusicInfo, allowToggleSource, taskOptions })
   }
 }
 
