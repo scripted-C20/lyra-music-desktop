@@ -92,7 +92,11 @@ body {
   background-color: transparent;
 
   body {
-    background: linear-gradient(180deg, rgb(239, 239, 242) 0%, rgb(231, 231, 235) 100%);
+    background-color: var(--color-app-background);
+    background-image: var(--background-image);
+    background-position: var(--background-image-position);
+    background-size: var(--background-image-size);
+    background-repeat: no-repeat;
   }
 
   #root {
@@ -114,10 +118,14 @@ body {
   // }
 }
 .fullscreen {
-  background-color: var(--color-content-background);
+  background-color: var(--color-app-background);
 
   body {
-    background: var(--color-content-background);
+    background-color: var(--color-app-background);
+    background-image: var(--background-image);
+    background-position: var(--background-image-position);
+    background-size: var(--background-image-size);
+    background-repeat: no-repeat;
   }
 
   #root {

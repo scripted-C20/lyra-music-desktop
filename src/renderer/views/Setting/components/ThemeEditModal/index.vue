@@ -69,15 +69,15 @@ v-if="bgImg" loading="lazy" decoding="async" :class="$style.img" :src="bgImg"
               <div :class="$style.controlBtn">
                 <button type="button" :class="$style.hide">
                   <line-icon
-:class="$style.controlBtnIcon" :icon="RectangleHorizontal" :size="15"
+:class="$style.controlBtnIcon" :icon="RectangleHorizontal" :size="13"
                     :stroke-width="2.2"
 />
                 </button>
                 <button type="button" :class="$style.min">
-                  <line-icon :class="$style.controlBtnIcon" :icon="Minus" :size="15" :stroke-width="2.2" />
+                  <line-icon :class="$style.controlBtnIcon" :icon="Minus" :size="13" :stroke-width="2.2" />
                 </button>
                 <button type="button" :class="$style.close">
-                  <line-icon :class="$style.controlBtnIcon" :icon="X" :size="15" :stroke-width="2.2" />
+                  <line-icon :class="$style.controlBtnIcon" :icon="X" :size="13" :stroke-width="2.2" />
                 </button>
               </div>
             </div>
@@ -630,7 +630,7 @@ export default {
   display: flex;
   flex-flow: column nowrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .base {
@@ -743,7 +743,7 @@ export default {
   -webkit-app-region: no-drag;
   align-items: center;
   margin-left: auto;
-  gap: 6px;
+  gap: 10px;
   padding: 4px;
   flex-direction: row-reverse;
   border-radius: 16px;
@@ -772,13 +772,13 @@ export default {
     display: flex;
     justify-content: center;
     align-items: center;
-    width: 32px;
-    height: 28px;
+    width: 38px;
+    height: 34px;
     border-radius: 12px;
-    color: var(--ui-text-secondary);
+    color: var(--color-font-label);
     box-shadow:
-      0 4px 10px rgba(15, 23, 42, 0.04),
-      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+      0 2px 8px rgba(15, 23, 42, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.72);
 
     +button {
       margin-right: 0;
@@ -798,13 +798,26 @@ export default {
     // }
     &.close {
       background-color: var(--color-btn-close);
+      color: var(--color-btn-font);
+    }
+
+    &:hover {
+      color: var(--ui-text-accent);
+      background-color: var(--color-primary-light-300-alpha-800);
+    }
+
+    &:active {
+      color: var(--ui-text-accent);
+      background-color: var(--color-primary-alpha-900);
     }
   }
 }
 
 .controlBtnIcon {
-  opacity: .84;
-  transition: opacity 0.2s ease-in-out;
+  opacity: .8;
+  transition: opacity 0.15s ease;
+  width: 14px;
+  height: 14px;
 }
 
 .note {

@@ -29,7 +29,7 @@ dd
       li(v-if="showAllTheme" :aria-label="$t('theme_add')" :class="[$style.themeItem, $style.add]" @click="handleEditTheme()")
         div(:class="$style.bg")
           div(:class="$style.bgContent")
-            svg-icon(:class="$style.icon" name="plus")
+            line-icon(:class="$style.icon" :icon="Plus" :size="18" :stroke-width="2.2")
         span(:class="$style.label") {{ $t('theme_add') }}
       li(v-if="!showAllTheme" :aria-label="$t('theme_more_btn_show')" :class="[$style.themeItem, $style.moreThme]" @click="showAllTheme = true")
         span(:class="$style.label") {{ $t('theme_more_btn_show') }}
@@ -108,6 +108,7 @@ user-api-modal(v-model="isShowUserApiModal")
 import { computed, ref, watch, reactive, shallowReactive } from '@common/utils/vueTools'
 import { debounce } from '@common/utils'
 import { normalizeSourceSearchTimeout } from '@common/constants'
+import { Plus } from 'lucide-vue-next'
 import { windowSizeList, userApi, isFullscreen, isWindowMaximized, themeId } from '@renderer/store'
 import { langList, useI18n } from '@root/lang'
 import { getSystemFonts, maxWindow, setFullScreen, setWindowSize } from '@renderer/utils/ipc'
@@ -407,6 +408,7 @@ export default {
       handleRefreshTheme,
       editThemeId,
       handleEditTheme,
+      Plus,
       fontSizeList,
     }
   },
@@ -600,12 +602,15 @@ export default {
           display: flex;
           align-items: center;
           justify-content: center;
+          line-height: 0;
         }
         .icon {
-          // position: absolute;
-          // font-size: 16px;
-          width: 66%;
-          height: auto;
+          display: block;
+          width: 18px;
+          height: 18px;
+          margin: 0;
+          flex: none;
+          transform: translateY(0.5px);
         }
       }
       .label {

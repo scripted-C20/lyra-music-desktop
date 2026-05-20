@@ -16,6 +16,7 @@ import {
 import { appSetting } from '@renderer/store/setting'
 import { createGetMusicUrlTask, getPicPath, getLyricInfo } from '../music/index'
 import { filterList, getPlaybackMusicUrlTaskOptions } from './utils'
+import { getCurrentResolvedSourceMusicInfo, getTrustedResolvedSourceMusicInfo, isManualToggleSourceMusicInfo } from '../music/utils'
 import { requestMsg } from '@renderer/utils/message'
 import { getRandom } from '@renderer/utils/index'
 import { addListMusics, removeListMusics } from '@renderer/store/list/action'
@@ -24,11 +25,13 @@ import { addDislikeInfo } from '@renderer/core/dislikeList'
 import {
   clearPendingResolvedMusicInfo,
   createMusicUrlRequestId,
+  getPendingResolvedMusicInfo,
   setPendingResolvedMusicInfo,
   takePendingResolvedMusicInfo,
   takePreloadedMusicUrl,
 } from './musicUrlState'
 import { getPreferredResolvedSourceMusicInfo, setRuntimeSourceMemory } from './runtimeSourceMemory'
+import { clearFailedResolvedSourceMusicInfos, getFailedResolvedSourceMusicInfos, markFailedResolvedSourceMusicInfo } from './failedResolvedSourceState'
 // import { checkMusicFileAvailable } from '@renderer/utils/music'
 
 let gettingUrlId = ''
@@ -105,15 +108,83 @@ const diffCurrentMusicInfo = (
 
 let cancelDelayRetry: (() => void) | null = null
 let currentMusicUrlTask: null | { cancel: () => void } = null
+let currentMusicUrlApplyGenerationSeed = 0
+let currentMusicResourceApplySeed = 0
 const currentMusicUrlState = {
   requestId: '',
   usedPreloadedUrl: false,
   retryWithRefreshOnFailure: true,
 }
+const currentMusicUrlApplyGenerationState = {
+  requestId: '',
+  token: '',
+}
+const currentMusicResourceApplyState = {
+  requestId: '',
+  token: '',
+  resourceUrl: '',
+}
 const resetCurrentMusicUrlState = () => {
   currentMusicUrlState.requestId = ''
   currentMusicUrlState.usedPreloadedUrl = false
   currentMusicUrlState.retryWithRefreshOnFailure = true
+}
+const createCurrentMusicUrlApplyGenerationToken = () => `${Date.now()}_${++currentMusicUrlApplyGenerationSeed}`
+const createCurrentMusicResourceApplyToken = () => `${Date.now()}_${++currentMusicResourceApplySeed}`
+const normalizePlaybackResourceUrl = (url = '') => {
+  if (!url) return ''
+  try {
+    return new URL(url).href
+  } catch {
+    return url
+  }
+}
+export const beginCurrentMusicUrlApplyGeneration = (
+  musicInfo: LX.Music.MusicInfo | LX.Download.ListItem,
+  requestId = createGettingUrlId(musicInfo),
+) => {
+  const token = createCurrentMusicUrlApplyGenerationToken()
+  currentMusicUrlApplyGenerationState.requestId = requestId
+  currentMusicUrlApplyGenerationState.token = token
+  return token
+}
+export const isCurrentMusicUrlApplyGeneration = (
+  musicInfo: LX.Music.MusicInfo | LX.Download.ListItem,
+  requestId: string,
+  token: string,
+) => {
+  return !window.lx.isPlayedStop &&
+    currentMusicUrlApplyGenerationState.requestId == requestId &&
+    currentMusicUrlApplyGenerationState.token == token &&
+    createGettingUrlId(playMusicInfo.musicInfo ?? musicInfo) == requestId
+}
+export const clearCurrentMusicUrlApplyGeneration = (token?: string) => {
+  if (token && currentMusicUrlApplyGenerationState.token != token) return
+  currentMusicUrlApplyGenerationState.requestId = ''
+  currentMusicUrlApplyGenerationState.token = ''
+}
+export const beginCurrentMusicResourceApply = (
+  musicInfo: LX.Music.MusicInfo | LX.Download.ListItem,
+  requestId = createGettingUrlId(musicInfo),
+  resourceUrl = '',
+) => {
+  const token = createCurrentMusicResourceApplyToken()
+  currentMusicResourceApplyState.requestId = requestId
+  currentMusicResourceApplyState.token = token
+  currentMusicResourceApplyState.resourceUrl = normalizePlaybackResourceUrl(resourceUrl)
+  return token
+}
+export const clearCurrentMusicResourceApply = (token?: string) => {
+  if (token && currentMusicResourceApplyState.token != token) return
+  currentMusicResourceApplyState.requestId = ''
+  currentMusicResourceApplyState.token = ''
+  currentMusicResourceApplyState.resourceUrl = ''
+}
+export const clearCurrentMusicResourceApplyByRequest = (requestId: string, resourceUrl = '') => {
+  if (!requestId || currentMusicResourceApplyState.requestId != requestId) return
+  const normalizedResourceUrl = normalizePlaybackResourceUrl(resourceUrl)
+  if (normalizedResourceUrl && currentMusicResourceApplyState.resourceUrl && currentMusicResourceApplyState.resourceUrl != normalizedResourceUrl) return
+  clearCurrentMusicResourceApply()
 }
 const shouldRetryPreloadedUrlWithRefresh = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
   return !('progress' in musicInfo) && musicInfo.source != 'local'
@@ -127,10 +198,22 @@ const updateCurrentMusicUrlState = (
   currentMusicUrlState.usedPreloadedUrl = usedPreloadedUrl
   currentMusicUrlState.retryWithRefreshOnFailure = retryWithRefreshOnFailure
 }
-export const hasPendingPlayTask = () => !!gettingUrlToken || !!currentMusicUrlTask || !!cancelDelayRetry
+export const syncCurrentMusicUrlStateForResourceApply = (
+  musicInfo: LX.Music.MusicInfo | LX.Download.ListItem,
+  options: Partial<Pick<typeof currentMusicUrlState, 'usedPreloadedUrl' | 'retryWithRefreshOnFailure'>> = {},
+) => {
+  updateCurrentMusicUrlState(
+    musicInfo,
+    options.usedPreloadedUrl ?? false,
+    options.retryWithRefreshOnFailure ?? true,
+  )
+}
+export const hasPendingPlayTask = () => !!gettingUrlToken || !!currentMusicUrlTask || !!cancelDelayRetry || !!currentMusicResourceApplyState.token
 const cancelCurrentMusicUrlTask = () => {
   resetGettingUrlRequestState()
   resetCurrentMusicUrlState()
+  clearCurrentMusicUrlApplyGeneration()
+  clearCurrentMusicResourceApply()
   clearPendingResolvedMusicInfo()
   currentMusicUrlTask?.cancel()
   currentMusicUrlTask = null
@@ -193,10 +276,25 @@ const getMusicPlayUrl = async(
   // const type = getPlayType(appSetting['player.highQuality'], musicInfo)
   const handleResolvedMusicInfo = (resolvedMusicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
     if (window.lx.isPlayedStop || diffCurrentMusicInfo(musicInfo, requestId, requestToken)) return
-    setPendingResolvedMusicInfo(musicInfo, resolvedMusicInfo)
+    const baseResolvedMusicInfo = 'progress' in resolvedMusicInfo ? resolvedMusicInfo.metadata.musicInfo : resolvedMusicInfo
+    if (baseResolvedMusicInfo.source == 'local') {
+      setPendingResolvedMusicInfo(musicInfo, resolvedMusicInfo)
+      return
+    }
+    const trustedResolvedMusicInfo = getTrustedResolvedSourceMusicInfo(
+      musicInfo,
+      baseResolvedMusicInfo as LX.Music.MusicInfoOnline,
+      isManualToggleSourceMusicInfo(musicInfo) ? 'strict' : 'memory',
+    )
+    if (!trustedResolvedMusicInfo) return
+    setPendingResolvedMusicInfo(musicInfo, trustedResolvedMusicInfo)
   }
-  let toggleMusicInfo = getPreferredResolvedSourceMusicInfo(musicInfo)
-  const taskOptions = getPlaybackMusicUrlTaskOptions()
+  let toggleMusicInfo = getCurrentResolvedSourceMusicInfo(musicInfo)
+  const taskOptions = getPlaybackMusicUrlTaskOptions({
+    allowTooManyRequestsFallback: isRetryed,
+    excludedMusicInfos: getFailedResolvedSourceMusicInfos(musicInfo),
+  })
+  const allowToggleSource = !isManualToggleSourceMusicInfo(musicInfo)
 
   let fallbackTask: ReturnType<typeof createGetMusicUrlTask> | null = null
   const targetTask = toggleMusicInfo
@@ -213,6 +311,7 @@ const getMusicPlayUrl = async(
     fallbackTask = createGetMusicUrlTask({
       musicInfo,
       isRefresh,
+      allowToggleSource,
       taskOptions,
       onResolvedMusicInfo: handleResolvedMusicInfo,
       onToggleSource() {
@@ -248,7 +347,10 @@ const getMusicPlayUrl = async(
       diffCurrentMusicInfo(musicInfo, requestId, requestToken) ||
       err.message == requestMsg.cancelRequest) return null
 
-    if (err.message == requestMsg.tooManyRequests) return delayRetry(musicInfo, isRefresh, requestId, requestToken)
+    if (err.message == requestMsg.tooManyRequests) {
+      if (!isRetryed) return delayRetry(musicInfo, isRefresh, requestId, requestToken)
+      throw err
+    }
 
     if (!isRetryed && RETRYABLE_ERROR_MESSAGES.has(err.message)) return getMusicPlayUrl(musicInfo, isRefresh, true, requestId, requestToken)
 
@@ -262,13 +364,17 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
   // if (appSetting['player.autoSkipOnError']) addLoadTimeout()
   const requestId = createGettingUrlId(musicInfo)
   if (!isRefresh && currentMusicUrlTask && isSameMusicUrlTask(musicInfo, requestId)) return
+  if (!isRefresh) clearFailedResolvedSourceMusicInfos(musicInfo)
   cancelCurrentMusicUrlTask()
   if (cancelDelayRetry) cancelDelayRetry()
   const requestToken = createGettingUrlToken()
+  const applyGenerationToken = beginCurrentMusicUrlApplyGeneration(musicInfo, requestId)
   gettingUrlId = requestId
   gettingUrlToken = requestToken
   void getMusicPlayUrl(musicInfo, isRefresh, false, requestId, requestToken).then((url) => {
     if (!url) return
+    if (!isCurrentMusicUrlApplyGeneration(musicInfo, requestId, applyGenerationToken)) return
+    beginCurrentMusicResourceApply(musicInfo, requestId, url)
     setResource(url)
   }).catch((err: any) => {
     console.log(err)
@@ -285,6 +391,7 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
       resetGettingUrlRequestState()
       clearLoadTimeout()
     }
+    clearCurrentMusicUrlApplyGeneration(applyGenerationToken)
   })
 }
 
@@ -295,6 +402,41 @@ export const retryCurrentMusicUrlAfterPreloadFailure = (): boolean => {
   currentMusicUrlState.usedPreloadedUrl = false
   if (!isEmpty()) setStop()
   setMusicUrl(playMusicInfo.musicInfo, isRefresh)
+  return true
+}
+
+export const retryCurrentMusicUrlAfterStalledPlayback = (): boolean => {
+  const musicInfo = playMusicInfo.musicInfo
+  if (!musicInfo) return false
+  if (!isEmpty()) setStop()
+  setMusicUrl(musicInfo, true)
+  return true
+}
+
+const getCurrentPlaybackFailedResolvedMusicInfo = () => {
+  if (!playMusicInfo.musicInfo) return null
+  const pendingResolvedMusicInfo = getPendingResolvedMusicInfo(playMusicInfo.musicInfo)
+  if (pendingResolvedMusicInfo) {
+    return getTrustedResolvedSourceMusicInfo(
+      playMusicInfo.musicInfo,
+      pendingResolvedMusicInfo,
+      isManualToggleSourceMusicInfo(playMusicInfo.musicInfo) ? 'strict' : 'memory',
+    )
+  }
+  return getTrustedResolvedSourceMusicInfo(
+    playMusicInfo.musicInfo,
+    getPreferredResolvedSourceMusicInfo(playMusicInfo.musicInfo),
+    isManualToggleSourceMusicInfo(playMusicInfo.musicInfo) ? 'strict' : 'memory',
+  )
+}
+
+export const retryCurrentMusicUrlAfterPlaybackFailure = (): boolean => {
+  const musicInfo = playMusicInfo.musicInfo
+  if (!musicInfo) return false
+  const marked = markFailedResolvedSourceMusicInfo(musicInfo, getCurrentPlaybackFailedResolvedMusicInfo())
+  if (!marked) return false
+  if (!isEmpty()) setStop()
+  setMusicUrl(musicInfo, true)
   return true
 }
 
@@ -335,7 +477,7 @@ const requestCurrentMusicLyric = (
     if ((options.requestId ?? createGettingUrlId(musicInfo)) != createGettingUrlId(playMusicInfo.musicInfo ?? musicInfo)) return
     if (musicInfo.id != playMusicInfo.musicInfo?.id) return
     if (options.expectedResolvedMusicInfo) {
-      const currentResolvedMusicInfo = getPreferredResolvedSourceMusicInfo(playMusicInfo.musicInfo)
+      const currentResolvedMusicInfo = getCurrentResolvedSourceMusicInfo(playMusicInfo.musicInfo)
       if (!isSameOnlineMusicInfo(currentResolvedMusicInfo, options.expectedResolvedMusicInfo)) return
     }
     setMusicInfo({
@@ -352,7 +494,7 @@ const requestCurrentMusicLyric = (
     if ((options.requestId ?? createGettingUrlId(musicInfo)) != createGettingUrlId(playMusicInfo.musicInfo ?? musicInfo)) return
     if (musicInfo.id != playMusicInfo.musicInfo?.id) return
     if (options.expectedResolvedMusicInfo) {
-      const currentResolvedMusicInfo = getPreferredResolvedSourceMusicInfo(playMusicInfo.musicInfo)
+      const currentResolvedMusicInfo = getCurrentResolvedSourceMusicInfo(playMusicInfo.musicInfo)
       if (!isSameOnlineMusicInfo(currentResolvedMusicInfo, options.expectedResolvedMusicInfo)) return
     }
     if (options.suppressLoadErrorStatus) return
@@ -830,6 +972,7 @@ export const pause = () => {
  */
 export const stop = () => {
   clearCurrentMusicLyricRequest()
+  clearFailedResolvedSourceMusicInfos()
   cancelCurrentMusicUrlTask()
   if (cancelDelayRetry) cancelDelayRetry()
   setStop()
@@ -841,6 +984,7 @@ export const stop = () => {
 export const stopPendingPlay = () => {
   window.lx.isPlayedStop = true
   clearCurrentMusicLyricRequest()
+  clearFailedResolvedSourceMusicInfos()
   resetGettingUrlRequestState()
   clearDelayNextTimeout()
   clearLoadTimeout()

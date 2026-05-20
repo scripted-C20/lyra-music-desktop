@@ -809,7 +809,7 @@
   "user_api__test_latency_init_timeout": "初始化超时",
   "user_api__test_latency_last_source": "最近尝试 {source} · {quality}",
   "user_api__test_latency_no_source": "当前源没有可自动测试的在线平台",
-  "user_api__test_latency_note": "批量实播测试当前会使用最多 5 个隐藏运行时窗口并发执行；测试会先按当前播放音质请求真实播放链接，再在客户端用隐藏音频校验该链接能否开始播放。若某首测试歌只是在实播校验阶段失败，会自动换下一首继续尝试。请求超时跟随搜索超时设置，实播校验与真实播放共用同一套可播校验逻辑。",
+  "user_api__test_latency_note": "批量实播测试当前会使用最多 5 个隐藏运行时窗口并发执行；测试会先按当前播放音质请求真实播放链接，再在客户端做可播校验。单次实播测试使用更贴近真实播放的轻校验，慢速全检会继续使用更严格的实播校验。若某首测试歌只是在校验阶段失败，会自动换下一首继续尝试。请求超时跟随搜索超时设置。",
   "user_api__test_latency_preparing": "准备测试歌曲中...",
   "user_api__test_latency_search_failed": "没有找到可用于实播测试的测试歌曲",
   "user_api__test_latency_source_missing": "源不存在或已被删除",

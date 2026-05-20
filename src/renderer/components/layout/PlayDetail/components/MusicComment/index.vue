@@ -4,9 +4,9 @@ div.comment(ref="dom_container" :class="$style.comment")
     h3 {{ $t('comment__title', { name: currentMusicInfo.name }) }}
     div(:class="$style.commentHeaderBtns")
       button(type="button" :class="$style.commentHeaderBtn" :aria-label="$t('comment__refresh')" @click="handleShowComment")
-        line-icon(:icon="RefreshCw" :size="20" :stroke-width="2.6")
+        line-icon(:icon="RefreshCw" :size="14" :stroke-width="2.25")
       button(type="button" :class="$style.commentHeaderBtn" :aria-label="$t('close')" @click="$emit('close')")
-        line-icon(:icon="X" :size="21" :stroke-width="2.6")
+        line-icon(:icon="X" :size="14" :stroke-width="2.25")
 
   div(:class="$style.commentMain")
     template(v-if="available")
@@ -59,6 +59,7 @@ export default {
     return {
       RefreshCw,
       X,
+      commentLoadId: 0,
       available: false,
       currentMusicInfo: {
         name: '',
@@ -116,9 +117,18 @@ export default {
       },
     }
   },
+  computed: {
+    musicInfoKey() {
+      return this.getMusicInfoKey(this.musicInfo)
+    },
+  },
   watch: {
     show(n) {
       if (n) this.handleShowComment()
+    },
+    musicInfoKey(n, o) {
+      if (!this.show || !n || n == o) return
+      this.handleShowComment()
     },
   },
   mounted() {
@@ -129,6 +139,39 @@ export default {
     window.removeEventListener('resize', this.setWidth)
   },
   methods: {
+    normalizeMusicInfo(musicInfo) {
+      if (!musicInfo) return null
+      return 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+    },
+    getMusicInfoKey(musicInfo) {
+      const currentMusicInfo = this.normalizeMusicInfo(musicInfo)
+      if (!currentMusicInfo) return ''
+      return [
+        currentMusicInfo.source,
+        currentMusicInfo.songmid,
+        currentMusicInfo.id,
+        currentMusicInfo.hash,
+        currentMusicInfo.name,
+        currentMusicInfo.singer,
+      ].filter(Boolean).join('__')
+    },
+    resetCommentState() {
+      this.hotComment.isLoading = false
+      this.hotComment.isLoadError = false
+      this.hotComment.page = 1
+      this.hotComment.total = 0
+      this.hotComment.maxPage = 1
+      this.hotComment.nextPage = 1
+      this.hotComment.list = []
+
+      this.newComment.isLoading = false
+      this.newComment.isLoadError = false
+      this.newComment.page = 1
+      this.newComment.total = 0
+      this.newComment.maxPage = 1
+      this.newComment.nextPage = 1
+      this.newComment.list = []
+    },
     setWidth() {
       setTimeout(() => {
         const parentWidth = this.$refs.dom_container.parentNode.clientWidth
@@ -160,10 +203,11 @@ export default {
       }
       return resp
     },
-    handleGetNewComment(musicInfo, page, limit) {
+    handleGetNewComment(musicInfo, page, limit, loadId = this.commentLoadId) {
       this.newComment.isLoadError = false
       this.newComment.isLoading = true
       this.getComment(toOldMusicInfo(musicInfo), page, limit).then(comment => {
+        if (loadId != this.commentLoadId) return
         this.newComment.isLoading = false
         this.newComment.total = comment.total
         this.newComment.maxPage = comment.maxPage
@@ -173,16 +217,18 @@ export default {
           this.$refs.dom_commentNew.scrollTo(0, 0)
         })
       }).catch(err => {
+        if (loadId != this.commentLoadId) return
         console.log(err)
         if (err.message == '取消请求') return
         this.newComment.isLoadError = true
         this.newComment.isLoading = false
       })
     },
-    handleGetHotComment(musicInfo, page, limit) {
+    handleGetHotComment(musicInfo, page, limit, loadId = this.commentLoadId) {
       this.hotComment.isLoadError = false
       this.hotComment.isLoading = true
       this.getHotComment(toOldMusicInfo(musicInfo), page, limit).then(hotComment => {
+        if (loadId != this.commentLoadId) return
         this.hotComment.isLoading = false
         this.hotComment.total = hotComment.total
         this.hotComment.maxPage = hotComment.maxPage
@@ -192,6 +238,7 @@ export default {
           this.$refs.dom_commentHot.scrollTo(0, 0)
         })
       }).catch(err => {
+        if (loadId != this.commentLoadId) return
         console.log(err)
         if (err.message == '取消请求') return
         this.hotComment.isLoadError = true
@@ -199,28 +246,19 @@ export default {
       })
     },
     handleShowComment() {
-      this.currentMusicInfo = 'progress' in this.musicInfo ? this.musicInfo.metadata.musicInfo : this.musicInfo
+      this.currentMusicInfo = this.normalizeMusicInfo(this.musicInfo)
+      const loadId = ++this.commentLoadId
+      this.resetCommentState()
 
-      if (this.currentMusicInfo.source == 'local' || !music[this.currentMusicInfo.source].comment) {
+      if (!this.currentMusicInfo || this.currentMusicInfo.source == 'local' || !music[this.currentMusicInfo.source].comment) {
         this.available = false
         return
       }
       this.available = true
-      // if (this.musicInfo.songmid != this.currentMusicInfo.songmid) {
-      this.hotComment.page = 1
-      this.hotComment.total = 0
-      this.hotComment.maxPage = 1
-      this.hotComment.nextPage = 1
-
-      this.newComment.page = 1
-      this.newComment.total = 0
-      this.newComment.maxPage = 1
-      this.newComment.nextPage = 1
-      // }
       this.isShowComment = true
 
-      this.handleGetHotComment(this.currentMusicInfo, this.hotComment.page, this.hotComment.limit)
-      this.handleGetNewComment(this.currentMusicInfo, this.newComment.page, this.newComment.limit)
+      this.handleGetHotComment(this.currentMusicInfo, this.hotComment.page, this.hotComment.limit, loadId)
+      this.handleGetNewComment(this.currentMusicInfo, this.newComment.page, this.newComment.limit, loadId)
     },
     handleToggleHotCommentPage(page) {
       this.hotComment.nextPage = page
@@ -279,8 +317,8 @@ export default {
   color: var(--color-primary);
 }
 .commentHeaderBtn {
-  height: 34px;
-  width: 34px;
+  height: 28px;
+  width: 28px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -370,7 +408,11 @@ export default {
   }
 }
 .pagination {
-  padding: 10px 0;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding: 12px 0 4px;
+  box-sizing: border-box;
 }
 
 .unavailable {

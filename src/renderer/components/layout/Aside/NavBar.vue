@@ -134,7 +134,8 @@ export default {
   padding: 0 12px 10px;
   font-size: var(--ui-font-meta);
   line-height: 1.2;
-  color: var(--ui-text-tertiary);
+  color: var(--color-nav-font);
+  opacity: .78;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -161,7 +162,7 @@ export default {
   gap: 12px;
   transition: @transition-fast;
   transition-property: background-color, opacity, color, transform, box-shadow;
-  color: var(--ui-text-secondary);
+  color: var(--color-nav-font);
   cursor: pointer;
   text-align: left;
   outline: none;
@@ -188,7 +189,7 @@ export default {
   }
 
   &.active {
-    color: var(--ui-text-primary);
+    color: var(--color-nav-font);
     background: linear-gradient(180deg, var(--color-primary-alpha-900), var(--color-primary-light-300-alpha-800));
     font-weight: 600;
     box-shadow: inset 0 0 0 1px var(--color-primary-light-300-alpha-800);
@@ -198,12 +199,12 @@ export default {
     }
 
     .label {
-      color: var(--ui-text-primary);
+      color: inherit;
     }
   }
 
   &:hover {
-    color: var(--ui-text-primary);
+    color: var(--color-nav-font);
     transform: translateX(1px);
 
     &:not(.active) {
@@ -227,5 +228,6 @@ export default {
   max-width: 100%;
   opacity: 1;
   font-weight: 500;
+  color: inherit;
 }
 </style>

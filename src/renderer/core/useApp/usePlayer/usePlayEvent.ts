@@ -4,11 +4,27 @@ import { useI18n } from '@renderer/plugins/i18n'
 import { isPlay, isPlayLoading, playMusicInfo } from '@renderer/store/player/state'
 import { playProgress } from '@renderer/store/player/playProgress'
 import { setPause, setResource, setStop, isEmpty, getDuration } from '@renderer/plugins/player'
-import { hasPendingPlayTask, markCurrentMusicUrlPlaybackStarted, playNextAfterError, retryCurrentMusicUrlAfterPreloadFailure, setMusicUrl, URL_FETCH_ERROR_CODE } from '@renderer/core/player'
+import {
+  beginCurrentMusicResourceApply,
+  beginCurrentMusicUrlApplyGeneration,
+  clearCurrentMusicResourceApply,
+  clearCurrentMusicResourceApplyByRequest,
+  clearCurrentMusicUrlApplyGeneration,
+  hasPendingPlayTask,
+  isCurrentMusicUrlApplyGeneration,
+  markCurrentMusicUrlPlaybackStarted,
+  playNextAfterError,
+  retryCurrentMusicUrlAfterPlaybackFailure,
+  retryCurrentMusicUrlAfterPreloadFailure,
+  setMusicUrl,
+  syncCurrentMusicUrlStateForResourceApply,
+  URL_FETCH_ERROR_CODE,
+} from '@renderer/core/player'
 import { createGetMusicUrlTask } from '@renderer/core/music'
+import { isManualToggleSourceMusicInfo, isMusicInfoDurationMismatched, isUserApiSourceSelected } from '@renderer/core/music/utils'
 import { clearRuntimeSourceMemory } from '@renderer/core/player/runtimeSourceMemory'
 import { clearPendingResolvedMusicInfo, createMusicUrlRequestId, setPendingResolvedMusicInfo } from '@renderer/core/player/musicUrlState'
-import { getPlaybackMusicUrlTaskOptions } from '@renderer/core/player/utils'
+import { getPlaybackMusicUrlTaskOptions, isPlaybackWindowBackgrounded } from '@renderer/core/player/utils'
 import { setAllStatus, setPlayLoading } from '@renderer/store/player/action'
 import { appSetting } from '@renderer/store/setting'
 import { getDownloadFilePath, getLocalFilePath } from '@renderer/utils/music'
@@ -25,6 +41,7 @@ export default () => {
 
   let loadingTimeout: NodeJS.Timeout | null = null
   let delayNextTimeout: NodeJS.Timeout | null = null
+  let strictDurationMismatchRetryId: string | null = null
   let sourceChangeRefreshTask: ReturnType<typeof createGetMusicUrlTask> | null = null
   let sourceChangeResumeState: null | {
     requestId: string
@@ -75,6 +92,41 @@ export default () => {
     setMusicUrl(playMusicInfo.musicInfo, true)
     return true
   }
+  const clearCurrentResourceApplyForEvent = (resourceUrl = '') => {
+    const currentRequestId = getCurrentRequestId()
+    if (!currentRequestId) return
+    clearCurrentMusicResourceApplyByRequest(currentRequestId, resourceUrl)
+  }
+  const handleStrictDurationMismatch = () => {
+    const currentMusic = playMusicInfo.musicInfo
+    if (!currentMusic || window.lx.isPlayedStop) return false
+    const isStrictToggle = isManualToggleSourceMusicInfo(currentMusic)
+    const shouldCheckUserApiDuration = isUserApiSourceSelected() && !('progress' in currentMusic) && currentMusic.source != 'local'
+    if (!isStrictToggle && !shouldCheckUserApiDuration) return false
+    const currentRequestId = getCurrentRequestId()
+    if (!currentRequestId) return false
+    const duration = getDuration()
+    if (!isMusicInfoDurationMismatched(currentMusic, duration, isStrictToggle ? 8 : 10, {
+      requireManualToggle: false,
+    })) return false
+
+    clearLoadingTimeout()
+    clearPendingResolvedMusicInfo(currentMusic)
+
+    if (strictDurationMismatchRetryId !== currentRequestId) {
+      strictDurationMismatchRetryId = currentRequestId
+      setPlayLoading(true)
+      setAllStatus('播放资源与目标歌曲时长不匹配，正在重试')
+      setMusicUrl(currentMusic, true)
+      return true
+    }
+
+    strictDurationMismatchRetryId = null
+    setStop()
+    setPlayLoading(false)
+    setAllStatus('播放资源与目标歌曲时长不匹配')
+    return true
+  }
   const startLoadingTimeout = () => {
     // console.log('start load timeout')
     clearLoadingTimeout()
@@ -84,8 +136,21 @@ export default () => {
         setAllStatus('')
         return
       }
+      if (isPlaybackWindowBackgrounded()) {
+        prevTimeoutId = null
+        startLoadingTimeout()
+        return
+      }
 
       if (retryCurrentMusicUrlAfterPreloadFailure()) {
+        prevTimeoutId = null
+        requestErrorRetryId = null
+        setPlayLoading(true)
+        setAllStatus(t('player__refresh_url'))
+        return
+      }
+
+      if (retryCurrentMusicUrlAfterPlaybackFailure()) {
         prevTimeoutId = null
         requestErrorRetryId = null
         setPlayLoading(true)
@@ -125,6 +190,10 @@ export default () => {
         setAllStatus('')
         return
       }
+      if (isPlaybackWindowBackgrounded()) {
+        addDelayNextTimeout()
+        return
+      }
       void playNextAfterError()
     }, 5000)
   }
@@ -136,18 +205,25 @@ export default () => {
     setAllStatus(t('player__loading'))
   }
 
-  const handleLoadeddata = () => {
+  const handleLoadeddata = (resourceUrl = '') => {
+    clearCurrentResourceApplyForEvent(resourceUrl)
+    if (handleStrictDurationMismatch()) return
     setPlayLoading(true)
     setAllStatus(t('player__loading'))
     restoreSourceChangeResumeState()
   }
 
-  const handleCanplay = () => {
+  const handleCanplay = (resourceUrl = '') => {
+    clearCurrentResourceApplyForEvent(resourceUrl)
+    if (handleStrictDurationMismatch()) return
     restoreSourceChangeResumeState()
   }
 
-  const handlePlaying = () => {
+  const handlePlaying = (resourceUrl = '') => {
+    clearCurrentResourceApplyForEvent(resourceUrl)
+    if (handleStrictDurationMismatch()) return
     restoreSourceChangeResumeState()
+    strictDurationMismatchRetryId = null
     markCurrentMusicUrlPlaybackStarted()
     requestErrorRetryId = null
     setPlayLoading(false)
@@ -170,8 +246,9 @@ export default () => {
     setAllStatus(t('player__buffering'))
   }
 
-  const handleError = (errCode?: number) => {
+  const handleError = (errCode?: number, resourceUrl = '') => {
     const currentRequestId = getCurrentRequestId()
+    clearCurrentResourceApplyForEvent(resourceUrl)
     if (!currentRequestId) return
     clearLoadingTimeout()
     if (window.lx.isPlayedStop) return
@@ -183,8 +260,8 @@ export default () => {
       setAllStatus(t('player__refresh_url'))
       return
     }
-    clearPendingResolvedMusicInfo(playMusicInfo.musicInfo ?? undefined)
     if (errCode === URL_FETCH_ERROR_CODE) {
+      clearPendingResolvedMusicInfo(playMusicInfo.musicInfo ?? undefined)
       if (playMusicInfo.musicInfo && requestErrorRetryId !== currentRequestId) {
         requestErrorRetryId = currentRequestId
         if (retryCurrentMusicUrl()) return
@@ -198,6 +275,15 @@ export default () => {
       }
       return
     }
+    if (retryCurrentMusicUrlAfterPlaybackFailure()) {
+      retryNum = 0
+      prevTimeoutId = null
+      requestErrorRetryId = null
+      setPlayLoading(true)
+      setAllStatus(t('player__refresh_url'))
+      return
+    }
+    clearPendingResolvedMusicInfo(playMusicInfo.musicInfo ?? undefined)
     if (!isEmpty()) setStop()
     if (playMusicInfo.musicInfo && errCode !== 1 && retryNum < 2) { // 若音频URL无效则尝试刷新2次URL
       // console.log(this.retryNum)
@@ -218,8 +304,10 @@ export default () => {
   }
 
   const handleSetPlayInfo = () => {
+    clearCurrentMusicResourceApply()
     cancelSourceChangeRefreshTask()
     clearSourceChangeResumeState()
+    strictDurationMismatchRetryId = null
     retryNum = 0
     prevTimeoutId = null
     requestErrorRetryId = null
@@ -227,8 +315,10 @@ export default () => {
     clearLoadingTimeout()
   }
   const handleStop = () => {
+    clearCurrentMusicResourceApply()
     cancelSourceChangeRefreshTask()
     clearSourceChangeResumeState()
+    strictDurationMismatchRetryId = null
     retryNum = 0
     prevTimeoutId = null
     requestErrorRetryId = null
@@ -267,11 +357,17 @@ export default () => {
       return
     }
 
+    const applyGenerationToken = beginCurrentMusicUrlApplyGeneration(currentMusic, currentRequestId)
     const task = createGetMusicUrlTask({
       musicInfo: playMusicInfo.musicInfo,
       isRefresh: true,
-      taskOptions: getPlaybackMusicUrlTaskOptions({ skipSharedCache: true }),
+      allowToggleSource: !isManualToggleSourceMusicInfo(playMusicInfo.musicInfo),
+      taskOptions: getPlaybackMusicUrlTaskOptions({
+        skipSharedCache: true,
+        allowTooManyRequestsFallback: true,
+      }),
       onResolvedMusicInfo(resolvedMusicInfo) {
+        if (!isCurrentMusicUrlApplyGeneration(currentMusic, currentRequestId, applyGenerationToken)) return
         setPendingResolvedMusicInfo(currentMusic, resolvedMusicInfo)
       },
     })
@@ -281,22 +377,27 @@ export default () => {
       if (sourceChangeRefreshTask !== task) return
       if (!playMusicInfo.musicInfo || window.lx.isPlayedStop) return
       if (createMusicUrlRequestId(playMusicInfo.musicInfo) !== currentRequestId) return
+      if (!isCurrentMusicUrlApplyGeneration(currentMusic, currentRequestId, applyGenerationToken)) return
       queueSourceChangeResumeState(
         currentRequestId,
         playProgress.nowPlayTime,
         playProgress.maxPlayTime,
         !isPlay.value,
       )
+      syncCurrentMusicUrlStateForResourceApply(currentMusic)
+      beginCurrentMusicResourceApply(currentMusic, currentRequestId, url)
       setResource(url)
     } catch (err) {
       if (sourceChangeRefreshTask !== task) return
       if (!playMusicInfo.musicInfo || window.lx.isPlayedStop) return
       if (createMusicUrlRequestId(playMusicInfo.musicInfo) !== currentRequestId) return
+      if (!isCurrentMusicUrlApplyGeneration(currentMusic, currentRequestId, applyGenerationToken)) return
       console.log(err)
       setPlayLoading(false)
       setAllStatus('')
     } finally {
       if (sourceChangeRefreshTask === task) sourceChangeRefreshTask = null
+      clearCurrentMusicUrlApplyGeneration(applyGenerationToken)
     }
   }
 

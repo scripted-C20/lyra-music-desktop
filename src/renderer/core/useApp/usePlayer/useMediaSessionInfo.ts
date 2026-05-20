@@ -55,6 +55,9 @@ export default () => {
       position: state.position ?? getCurrentTime(),
     })
   }
+  const handleUpdatePositionState = () => {
+    updatePositionState()
+  }
 
   const setProgress = (time: number) => {
     window.app_event.setProgress(time)
@@ -128,8 +131,8 @@ export default () => {
   // })
   // }
 
-  window.app_event.on('playerLoadeddata', updatePositionState)
-  window.app_event.on('playerPlaying', updatePositionState)
+  window.app_event.on('playerLoadeddata', handleUpdatePositionState)
+  window.app_event.on('playerPlaying', handleUpdatePositionState)
   window.app_event.on('play', handlePlay)
   window.app_event.on('pause', handlePause)
   window.app_event.on('stop', handleStop)
@@ -140,8 +143,8 @@ export default () => {
   window.app_event.on('picUpdated', updateMediaSessionInfo)
 
   onBeforeUnmount(() => {
-    window.app_event.off('playerLoadeddata', updatePositionState)
-    window.app_event.off('playerPlaying', updatePositionState)
+    window.app_event.off('playerLoadeddata', handleUpdatePositionState)
+    window.app_event.off('playerPlaying', handleUpdatePositionState)
     window.app_event.off('play', handlePlay)
     window.app_event.off('pause', handlePause)
     window.app_event.off('stop', handleStop)

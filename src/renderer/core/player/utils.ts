@@ -69,14 +69,25 @@ export const getSourceSearchTimeoutSeconds = () => {
   return normalizeSourceSearchTimeout(appSetting['common.sourceSearchTimeout'])
 }
 
+export const isPlaybackWindowBackgrounded = () => {
+  if (typeof document == 'undefined') return false
+  return document.hidden || (typeof document.hasFocus == 'function' && !document.hasFocus())
+}
+
 export const getPlaybackMusicUrlTaskOptions = (overrides: {
   skipUserApiVerify?: boolean
+  userApiVerifyMode?: 'light' | 'strict'
   skipSharedCache?: boolean
+  allowTooManyRequestsFallback?: boolean
+  excludedMusicInfos?: Array<Pick<LX.Music.MusicInfo, 'source' | 'id'>>
 } = {}) => {
   return {
     urlTimeout: getSourceSearchTimeoutWithBufferMs(appSetting['common.sourceSearchTimeout']),
     otherSourceTimeout: getSourceSearchTimeoutMs(appSetting['common.sourceSearchTimeout']),
-    skipUserApiVerify: !!overrides.skipUserApiVerify,
+    skipUserApiVerify: overrides.skipUserApiVerify ?? false,
+    userApiVerifyMode: overrides.userApiVerifyMode ?? 'light',
     skipSharedCache: !!overrides.skipSharedCache,
+    allowTooManyRequestsFallback: !!overrides.allowTooManyRequestsFallback,
+    excludedMusicInfos: overrides.excludedMusicInfos,
   }
 }

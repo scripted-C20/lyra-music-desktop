@@ -259,11 +259,12 @@ export const getTheme = () => {
     theme = userThemes.find(theme => theme.id == themeId)
     if (theme) {
       if (theme.config.extInfo['--background-image'] != 'none') {
-        theme = copyTheme(theme)
-        theme.config.extInfo['--background-image'] =
-          isUrl(theme.config.extInfo['--background-image'])
-            ? `url(${theme.config.extInfo['--background-image']})`
-            : `url(file:///${encodePath(joinPath(global.lxDataPath, 'theme_images', theme.config.extInfo['--background-image']))})`
+        const copiedTheme = copyTheme(theme)
+        copiedTheme.config.extInfo['--background-image'] =
+          isUrl(copiedTheme.config.extInfo['--background-image'])
+            ? `url(${copiedTheme.config.extInfo['--background-image']})`
+            : `url(file:///${encodePath(joinPath(global.lxDataPath, 'theme_images', copiedTheme.config.extInfo['--background-image']))})`
+        theme = copiedTheme
       }
     } else {
       themeId = global.lx.appSetting['theme.id'] == 'auto' && shouldUseDarkColors ? 'black' : 'green'
@@ -271,18 +272,19 @@ export const getTheme = () => {
     }
   }
 
+  const activeTheme = theme as LX.Theme
   const colors: Record<string, string> = {
-    ...theme.config.themeColors,
-    ...theme.config.extInfo,
+    ...activeTheme.config.themeColors,
+    ...activeTheme.config.extInfo,
   }
 
   return {
     shouldUseDarkColors,
     theme: {
       id: global.lx.appSetting['theme.id'],
-      name: theme.name,
-      isDark: theme.isDark,
-      isDarkFont: theme.isDarkFont,
+      name: activeTheme.name,
+      isDark: activeTheme.isDark,
+      isDarkFont: activeTheme.isDarkFont,
       colors,
     },
   }

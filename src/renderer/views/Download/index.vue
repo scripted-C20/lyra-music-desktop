@@ -262,7 +262,7 @@ export default {
   box-sizing: border-box;
   background:
     radial-gradient(circle at top left, rgba(198, 47, 47, 0.05), transparent 28%),
-    linear-gradient(180deg, rgba(252, 252, 253, 0.98), rgba(246, 246, 248, 0.98));
+    linear-gradient(180deg, var(--color-main-background), var(--color-main-background));
 
   :global(.list-item) {
     &.active {
@@ -290,7 +290,7 @@ export default {
   overflow: hidden;
   border-radius: @radius-card;
   border: 1px solid rgba(228, 228, 232, 0.98);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 247, 249, 0.96));
+  background: linear-gradient(180deg, var(--color-main-background), var(--color-content-background));
   box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
 }
 

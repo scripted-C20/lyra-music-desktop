@@ -286,6 +286,7 @@ export const createWindow = () => {
       webSecurity: false,
       nodeIntegration: true,
       sandbox: false,
+      backgroundThrottling: false,
       enableWebSQL: false,
       webgl: false,
       spellcheck: false, // 禁用拼写检查器

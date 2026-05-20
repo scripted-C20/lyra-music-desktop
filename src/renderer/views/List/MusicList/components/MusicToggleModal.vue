@@ -45,7 +45,7 @@
             <h2>
               <div :class="$style.nameLabel">
                 <span :class="$style.name">{{ toggleMusicInfo.name }}</span>
-                <span :class="$style.label">{{ toggleMusicInfo.source }} {{ musicInfo.interval }}</span>
+                <span :class="$style.label">{{ toggleMusicInfo.source }} {{ toggleMusicInfo.interval }}</span>
               </div>
               <div :class="$style.singer">
                 {{ toggleMusicInfo.singer }}
@@ -65,6 +65,7 @@ import { Play, ChevronRight } from 'lucide-vue-next'
 
 import { LIST_IDS } from '@common/constants'
 import { openUrl } from '@common/utils/electron'
+import { markManualToggleSourceMusicInfo } from '@renderer/core/music/utils'
 import { playNext } from '@renderer/core/player'
 import { getSourceI18nPrefix } from '@renderer/store'
 import { addTempPlayList } from '@renderer/store/player/action'
@@ -147,6 +148,11 @@ export default {
     },
   },
   methods: {
+    cloneToggleMusicInfo(musicInfo) {
+      return typeof structuredClone == 'function'
+        ? structuredClone(musicInfo)
+        : JSON.parse(JSON.stringify(musicInfo))
+    },
     handleClose() {
       this.$emit('update:show', false)
     },
@@ -159,9 +165,10 @@ export default {
       void openUrl(url)
     },
     handlePlay(musicInfo) {
-      this.toggleMusicInfo = musicInfo
+      const targetMusicInfo = markRaw(markManualToggleSourceMusicInfo(this.cloneToggleMusicInfo(musicInfo)))
+      this.toggleMusicInfo = targetMusicInfo
       const isPlaying = !!playMusicInfo.musicInfo
-      addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo, isTop: true }])
+      addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo: targetMusicInfo, isTop: true }])
       if (isPlaying) void playNext()
     },
   },

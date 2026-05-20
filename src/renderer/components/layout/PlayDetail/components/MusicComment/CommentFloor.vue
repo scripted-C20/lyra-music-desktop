@@ -13,7 +13,7 @@ div(:class="$style.container")
                 time(v-if="item.timeStr" :class="$style.label") {{ timeFormat(item.timeStr) }}
                 div(v-if="item.location" :class="$style.label") {{ $t('comment__location', { location: item.location }) }}
             div(v-if="item.likedCount != null" :class="$style.likes")
-              line-icon(:icon="ThumbsUp" :size="18" :stroke-width="2.35" :class="$style.likesIcon")
+              line-icon(:icon="ThumbsUp" :size="12" :stroke-width="2.15" :class="$style.likesIcon")
               span {{ item.likedCount }}
           p.select(:class="$style.comment_text") {{ item.text }}
           div(v-if="item.images?.length" :class="$style.comment_images")
@@ -132,23 +132,22 @@ export default {
   min-width: 64px;
   font-size: 12px;
   display: inline-flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-end;
   gap: 4px;
   text-align: right;
-  padding-top: 2px;
   align-self: flex-start;
   color: var(--color-primary);
   opacity: .72;
 
   span {
-    line-height: 18px;
+    line-height: 1;
   }
 }
 .likesIcon {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   color: var(--color-primary);
 }
 .comment_text {

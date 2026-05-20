@@ -45,7 +45,10 @@ export interface MusicUrlTaskOptions {
   urlTimeout?: number
   otherSourceTimeout?: number
   skipUserApiVerify?: boolean
+  userApiVerifyMode?: 'light' | 'strict'
   skipSharedCache?: boolean
+  allowTooManyRequestsFallback?: boolean
+  excludedMusicInfos?: Array<Pick<LX.Music.MusicInfo, 'source' | 'id'>>
 }
 
 export const isUserApiSourceSelected = () => /^user_api/.test(appSetting['common.apiSource'])
@@ -53,6 +56,8 @@ export const canUseMusicUrlCache = (isRefresh: boolean) => !isRefresh
 export const getSourceSearchTimeoutMilliseconds = () => getSourceSearchTimeoutMs(appSetting['common.sourceSearchTimeout'])
 export const LOCAL_FALLBACK_CACHE_QUALITY: LX.Quality = '128k'
 const SHARED_MUSIC_URL_CACHE_SOURCE_ID = null
+const STRICT_TOGGLE_SOURCE_META_KEY = '__strictToggleSource'
+const STRICT_TOGGLE_SOURCE_INTERVAL_META_KEY = '__strictToggleSourceInterval'
 const USER_API_PLAY_VERIFY_MIN_TIMEOUT = 6_000
 const USER_API_PLAY_VERIFY_MAX_TIMEOUT = 12_000
 const USER_API_PLAY_VERIFY_MIN_PROGRESS = 1.2
@@ -62,6 +67,7 @@ const CACHED_MUSIC_URL_RESOLVED_SOURCE_MAX = 500
 const OTHER_SOURCE_GROUP_CONCURRENCY = 2
 
 type MusicInfoLike = LX.Music.MusicInfo | LX.Download.ListItem
+type ResolvedSourceTrustMode = 'candidate' | 'memory' | 'strict'
 interface CachedMusicUrlInfo {
   url: string
   cacheSourceId: string | null
@@ -70,6 +76,176 @@ interface CachedMusicUrlInfo {
 
 const getMusicUrlCacheBaseMusicInfo = (musicInfo: MusicInfoLike): LX.Music.MusicInfo => {
   return 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+}
+const getMusicInfoMeta = (
+  musicInfo: MusicInfoLike | LX.Music.MusicInfoOnline | null | undefined,
+): Record<string, any> | null => {
+  if (!musicInfo) return null
+  const targetMusicInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+  return targetMusicInfo.meta as Record<string, any> | null
+}
+const MUSIC_INFO_TEXT_FILTER_REGEXP = /[\s'"`~!！@#$%^&*()（）\-_=+[\]{}\\|;:：,.<>/?，。、&]+/g
+const MUSIC_INFO_SINGER_SPLIT_REGEXP = /、|&|;|；|\/|,|，|\|| feat\.? | ft\.? | x |×/i
+const normalizeMusicInfoText = (text?: string | null) => {
+  return typeof text == 'string'
+    ? text.trim().toLowerCase().replace(MUSIC_INFO_TEXT_FILTER_REGEXP, '')
+    : ''
+}
+const getNormalizedTextLengthRatio = (sourceText: string, targetText: string) => {
+  if (!sourceText || !targetText) return 0
+  const minLength = Math.min(sourceText.length, targetText.length)
+  const maxLength = Math.max(sourceText.length, targetText.length)
+  return maxLength ? minLength / maxLength : 0
+}
+const normalizeMusicInfoSinger = (text?: string | null) => {
+  const singer = typeof text == 'string' ? text.trim().toLowerCase() : ''
+  if (!singer) return ''
+  return singer
+    .split(MUSIC_INFO_SINGER_SPLIT_REGEXP)
+    .map(item => normalizeMusicInfoText(item))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+    .join('|')
+}
+const parseMusicInfoIntervalSeconds = (interval?: string | number | null) => {
+  if (typeof interval == 'number') {
+    if (!Number.isFinite(interval) || interval <= 0) return null
+    return Math.round(interval > 1000 ? interval / 1000 : interval)
+  }
+  if (typeof interval != 'string') return null
+  const targetInterval = interval.trim()
+  if (!targetInterval) return null
+  if (/^\d+$/.test(targetInterval)) {
+    const value = parseInt(targetInterval, 10)
+    if (!Number.isFinite(value) || value <= 0) return null
+    return value > 1000 ? Math.round(value / 1000) : value
+  }
+  const parts = targetInterval.split(':')
+  let total = 0
+  let unit = 1
+  while (parts.length) {
+    const value = parseInt(parts.pop()!.trim(), 10)
+    if (!Number.isFinite(value) || value < 0) return null
+    total += value * unit
+    unit *= 60
+  }
+  return total > 0 ? total : null
+}
+const getMusicInfoIntervalDiffSeconds = (sourceInterval?: string | number | null, targetInterval?: string | number | null) => {
+  const sourceSeconds = parseMusicInfoIntervalSeconds(sourceInterval)
+  const targetSeconds = parseMusicInfoIntervalSeconds(targetInterval)
+  if (sourceSeconds == null || targetSeconds == null) return null
+  return Math.abs(sourceSeconds - targetSeconds)
+}
+const isComparableNormalizedTextMatch = (sourceText: string, targetText: string) => {
+  return !!sourceText && !!targetText && (
+    sourceText == targetText ||
+    sourceText.includes(targetText) ||
+    targetText.includes(sourceText)
+  )
+}
+const isComparableNormalizedTextStrongMatch = (sourceText: string, targetText: string) => {
+  if (!isComparableNormalizedTextMatch(sourceText, targetText)) return false
+  if (sourceText == targetText) return true
+  const minLength = Math.min(sourceText.length, targetText.length)
+  const maxLength = Math.max(sourceText.length, targetText.length)
+  if (!maxLength) return false
+  return minLength / maxLength >= 0.6
+}
+const isComparableNormalizedSingerMatch = (sourceSinger: string, targetSinger: string) => {
+  if (!sourceSinger || !targetSinger) return false
+  if (sourceSinger == targetSinger) return true
+  const sourceList = sourceSinger.split('|').filter(Boolean)
+  const targetList = targetSinger.split('|').filter(Boolean)
+  if (!sourceList.length || !targetList.length) return false
+  return sourceList.every(item => targetList.includes(item)) ||
+    targetList.every(item => sourceList.includes(item))
+}
+export const getTrustedResolvedSourceMusicInfo = (
+  musicInfo: MusicInfoLike,
+  resolvedMusicInfo?: LX.Music.MusicInfoOnline | null,
+  mode: ResolvedSourceTrustMode = 'candidate',
+) => {
+  if (!resolvedMusicInfo) return null
+  const baseMusicInfo = getMusicUrlCacheBaseMusicInfo(musicInfo)
+  if (baseMusicInfo.source != 'local' && isSameOnlineMusicInfo(baseMusicInfo, resolvedMusicInfo)) {
+    return resolvedMusicInfo
+  }
+
+  const baseName = normalizeMusicInfoText(baseMusicInfo.name)
+  const resolvedName = normalizeMusicInfoText(resolvedMusicInfo.name)
+  if (!isComparableNormalizedTextStrongMatch(baseName, resolvedName)) return null
+
+  const intervalDiff = getMusicInfoIntervalDiffSeconds(baseMusicInfo.interval, resolvedMusicInfo.interval)
+  if (intervalDiff != null && intervalDiff > 5) return null
+
+  const baseSinger = normalizeMusicInfoSinger(baseMusicInfo.singer)
+  const resolvedSinger = normalizeMusicInfoSinger(resolvedMusicInfo.singer)
+  const singerMatch = isComparableNormalizedSingerMatch(baseSinger, resolvedSinger)
+  const exactSingerMatch = !!baseSinger && !!resolvedSinger && baseSinger == resolvedSinger
+  const albumMatch = isComparableNormalizedTextStrongMatch(
+    normalizeMusicInfoText(baseMusicInfo.meta.albumName),
+    normalizeMusicInfoText(resolvedMusicInfo.meta.albumName),
+  )
+  const exactNameMatch = baseName == resolvedName
+  const nameLengthRatio = getNormalizedTextLengthRatio(baseName, resolvedName)
+  const closeInterval = intervalDiff == null || intervalDiff <= 3
+  const strictInterval = intervalDiff == null || intervalDiff <= 2
+  const hasBaseSinger = !!baseSinger
+  const isStrictMode = mode == 'strict' || isManualToggleSourceMusicInfo(baseMusicInfo)
+
+  if (mode == 'memory' || isStrictMode) {
+    if (!isComparableNormalizedTextStrongMatch(baseName, resolvedName)) return null
+    if (nameLengthRatio < (isStrictMode ? 0.85 : 0.75)) return null
+    if (intervalDiff != null && intervalDiff > (isStrictMode ? 2 : 3)) return null
+
+    if (hasBaseSinger) {
+      if (!singerMatch) return null
+      if (exactNameMatch) return resolvedMusicInfo
+      if (strictInterval && (albumMatch || exactSingerMatch)) return resolvedMusicInfo
+      if (!isStrictMode && closeInterval && albumMatch) return resolvedMusicInfo
+      return null
+    }
+
+    if (exactNameMatch && strictInterval) return resolvedMusicInfo
+    if (albumMatch && strictInterval) return resolvedMusicInfo
+    return null
+  }
+
+  if (singerMatch && (exactNameMatch || closeInterval || albumMatch)) return resolvedMusicInfo
+  if (!baseSinger && (closeInterval || albumMatch)) return resolvedMusicInfo
+  if (exactNameMatch && albumMatch && closeInterval) return resolvedMusicInfo
+
+  return null
+}
+export const markManualToggleSourceMusicInfo = <T extends LX.Music.MusicInfoOnline>(musicInfo: T): T => {
+  const targetMeta = getMusicInfoMeta(musicInfo)
+  if (!targetMeta) return musicInfo
+  targetMeta[STRICT_TOGGLE_SOURCE_META_KEY] = true
+  targetMeta[STRICT_TOGGLE_SOURCE_INTERVAL_META_KEY] = musicInfo.interval ?? ''
+  return musicInfo
+}
+export const isManualToggleSourceMusicInfo = (
+  musicInfo: MusicInfoLike | LX.Music.MusicInfoOnline | null | undefined,
+) => {
+  return !!getMusicInfoMeta(musicInfo)?.[STRICT_TOGGLE_SOURCE_META_KEY]
+}
+export const isMusicInfoDurationMismatched = (
+  musicInfo: MusicInfoLike | LX.Music.MusicInfoOnline | null | undefined,
+  duration: number,
+  maxDiffSeconds = 8,
+  options: {
+    requireManualToggle?: boolean
+  } = {},
+) => {
+  if ((options.requireManualToggle ?? true) && !isManualToggleSourceMusicInfo(musicInfo)) return false
+  if (!Number.isFinite(duration) || duration <= 0) return false
+  const targetMusicInfo = musicInfo && ('progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo)
+  if (!targetMusicInfo) return false
+  const expectedInterval = getMusicInfoMeta(musicInfo)?.[STRICT_TOGGLE_SOURCE_INTERVAL_META_KEY] ?? targetMusicInfo.interval
+  const expectedSeconds = parseMusicInfoIntervalSeconds(expectedInterval)
+  if (expectedSeconds == null) return false
+  return Math.abs(expectedSeconds - duration) > maxDiffSeconds
 }
 
 const createCancelledError = () => new Error(requestMsg.cancelRequest)
@@ -92,15 +268,31 @@ export const createPlaybackVerifyTask = (url: string, options: Partial<{
     cancelMessage: options.cancelMessage ?? requestMsg.cancelRequest,
   })
 }
+export const createLightPlaybackVerifyTask = (url: string, options: Partial<{
+  timeout: number
+  failedMessage: string
+  timeoutMessage: string
+  cancelMessage: string
+}> = {}) => {
+  return createVerifyPlayableUrlTask(url, {
+    timeout: options.timeout ?? getUserApiPlaybackVerifyTimeout(),
+    failedMessage: options.failedMessage ?? requestMsg.fail,
+    timeoutMessage: options.timeoutMessage ?? requestMsg.timeout,
+    cancelMessage: options.cancelMessage ?? requestMsg.cancelRequest,
+  })
+}
 const verifyPlayableUrlIfNeeded = async(
   url: string,
   setCancel: (cancel: () => void) => void,
   throwIfCancelled: () => void,
   skipUserApiVerify = false,
+  verifyMode: MusicUrlTaskOptions['userApiVerifyMode'] = 'strict',
 ) => {
   if (skipUserApiVerify) return
   if (!isUserApiSourceSelected() || !/^https?:/i.test(url)) return
-  const verifyTask = createPlaybackVerifyTask(url)
+  const verifyTask = verifyMode == 'light'
+    ? createLightPlaybackVerifyTask(url)
+    : createPlaybackVerifyTask(url)
   setCancel(verifyTask.cancel)
   await verifyTask.promise
   setCancel(noop)
@@ -144,18 +336,22 @@ export const getCachedMusicUrlInfo = async(
   musicInfo: MusicInfoLike,
   quality: LX.Quality,
   sourceId = appSetting['common.apiSource'],
-  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache'>,
+  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache' | 'excludedMusicInfos'>,
 ): Promise<CachedMusicUrlInfo | null> => {
   const targetMusicInfo = getMusicUrlCacheBaseMusicInfo(musicInfo)
   for (const cacheSourceId of getMusicUrlCacheSourceIds(sourceId, options)) {
     const cachedUrl = await getStoreMusicUrl(targetMusicInfo, quality, cacheSourceId)
     if (!cachedUrl) continue
+    const rememberedResolvedMusicInfo = cachedMusicUrlResolvedSourceMap.get(createMusicUrlCacheId(targetMusicInfo, quality, cacheSourceId)) ??
+      getPreferredResolvedSourceMusicInfo(musicInfo, sourceId) ??
+      null
+    const resolvedMusicInfo = getTrustedResolvedSourceMusicInfo(musicInfo, rememberedResolvedMusicInfo, 'memory')
+    if (rememberedResolvedMusicInfo && !resolvedMusicInfo) continue
+    if (isExcludedComparableMusicInfo(resolvedMusicInfo ?? musicInfo, options)) continue
     return {
       url: cachedUrl,
       cacheSourceId,
-      resolvedMusicInfo: cachedMusicUrlResolvedSourceMap.get(createMusicUrlCacheId(targetMusicInfo, quality, cacheSourceId)) ??
-        getPreferredResolvedSourceMusicInfo(musicInfo, sourceId) ??
-        null,
+      resolvedMusicInfo,
     }
   }
   return null
@@ -164,7 +360,7 @@ export const getCachedMusicUrl = async(
   musicInfo: MusicInfoLike,
   quality: LX.Quality,
   sourceId = appSetting['common.apiSource'],
-  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache'>,
+  options?: Pick<MusicUrlTaskOptions, 'skipSharedCache' | 'excludedMusicInfos'>,
 ) => {
   return (await getCachedMusicUrlInfo(musicInfo, quality, sourceId, options))?.url ?? ''
 }
@@ -177,7 +373,9 @@ export const saveCachedMusicUrl = async(
 ) => {
   if (!url) return
   const targetMusicInfo = getMusicUrlCacheBaseMusicInfo(musicInfo)
-  if (resolvedMusicInfo) rememberCachedMusicUrlResolvedSource(musicInfo, quality, resolvedMusicInfo, sourceId)
+  const trustMode: ResolvedSourceTrustMode = isManualToggleSourceMusicInfo(musicInfo) ? 'strict' : 'memory'
+  const trustedResolvedMusicInfo = resolvedMusicInfo ? getTrustedResolvedSourceMusicInfo(musicInfo, resolvedMusicInfo, trustMode) : null
+  if (trustedResolvedMusicInfo) rememberCachedMusicUrlResolvedSource(musicInfo, quality, trustedResolvedMusicInfo, sourceId)
   await Promise.all(getMusicUrlCacheSourceIds(sourceId).map(cacheSourceId => {
     return saveStoreMusicUrl(targetMusicInfo, quality, url, cacheSourceId)
   }))
@@ -194,7 +392,13 @@ const tryUseCachedMusicUrlInfo = async(
   const cachedUrlInfo = await getCachedMusicUrlInfo(musicInfo, quality, sourceId, taskOptions)
   if (!cachedUrlInfo || !canUseMusicUrlCache(isRefresh)) return null
   try {
-    await verifyPlayableUrlIfNeeded(cachedUrlInfo.url, setCancel, throwIfCancelled, taskOptions?.skipUserApiVerify)
+    await verifyPlayableUrlIfNeeded(
+      cachedUrlInfo.url,
+      setCancel,
+      throwIfCancelled,
+      taskOptions?.skipUserApiVerify,
+      taskOptions?.userApiVerifyMode,
+    )
     setCancel(noop)
     return cachedUrlInfo
   } catch (err: any) {
@@ -213,7 +417,12 @@ export const isSameOnlineMusicInfo = (
 }
 export const getCurrentResolvedSourceMusicInfo = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
   const baseMusicInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
-  const resolvedMusicInfo = getPendingResolvedMusicInfo(musicInfo) ?? getPreferredResolvedSourceMusicInfo(musicInfo)
+  const trustMode: ResolvedSourceTrustMode = isManualToggleSourceMusicInfo(baseMusicInfo) ? 'strict' : 'memory'
+  const resolvedMusicInfo = getTrustedResolvedSourceMusicInfo(
+    musicInfo,
+    getPendingResolvedMusicInfo(musicInfo) ?? getPreferredResolvedSourceMusicInfo(musicInfo),
+    trustMode,
+  )
   if (!resolvedMusicInfo) return null
   if (baseMusicInfo.source != 'local' && isSameOnlineMusicInfo(baseMusicInfo, resolvedMusicInfo)) return null
   return resolvedMusicInfo
@@ -226,6 +435,33 @@ const getTaskCancel = (task: any) => {
       : typeof task?.canceleFn == 'function'
         ? task.canceleFn.bind(task)
         : noop
+}
+const isSameResolvedMusicInfo = (
+  sourceMusicInfo?: Partial<Pick<LX.Music.MusicInfo, 'source' | 'id'>> | null,
+  targetMusicInfo?: Partial<Pick<LX.Music.MusicInfo, 'source' | 'id'>> | null,
+) => {
+  return !!sourceMusicInfo && !!targetMusicInfo &&
+    sourceMusicInfo.source == targetMusicInfo.source &&
+    sourceMusicInfo.id == targetMusicInfo.id
+}
+const normalizeComparableMusicInfo = (
+  musicInfo: MusicInfoLike | LX.Music.MusicInfoOnline | null | undefined,
+): Pick<LX.Music.MusicInfo, 'source' | 'id'> | null => {
+  if (!musicInfo) return null
+  const targetMusicInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo : musicInfo
+  if (!targetMusicInfo.source || !targetMusicInfo.id) return null
+  return {
+    source: targetMusicInfo.source,
+    id: targetMusicInfo.id,
+  }
+}
+const isExcludedComparableMusicInfo = (
+  musicInfo: MusicInfoLike | LX.Music.MusicInfoOnline | null | undefined,
+  taskOptions?: Pick<MusicUrlTaskOptions, 'excludedMusicInfos'>,
+) => {
+  const comparableMusicInfo = normalizeComparableMusicInfo(musicInfo)
+  if (!comparableMusicInfo) return false
+  return taskOptions?.excludedMusicInfos?.some(item => isSameResolvedMusicInfo(item, comparableMusicInfo)) ?? false
 }
 const createTaskTimeout = <T>(task: CancelableTask<T>, timeout: number, message: string = requestMsg.timeout): CancelableTask<T> => createCancelableTask(async({ setCancel, throwIfCancelled }) => {
   let timeoutId: NodeJS.Timeout | null = null
@@ -572,11 +808,19 @@ export const getOnlineOtherSourceMusicUrlByLocalTask = (musicInfo: LX.Music.Musi
     }
   }
 
+  if (isExcludedComparableMusicInfo(musicInfo, taskOptions)) throw new Error(window.i18n.t('toggle_source_failed'))
+
   const task = applyTaskTimeout(createLocalMusicUrlRequestTask(musicInfo), taskOptions?.urlTimeout)
   setCancel(task.cancel)
   const { url } = await task.promise
   throwIfCancelled()
-  await verifyPlayableUrlIfNeeded(url, setCancel, throwIfCancelled, taskOptions?.skipUserApiVerify)
+  await verifyPlayableUrlIfNeeded(
+    url,
+    setCancel,
+    throwIfCancelled,
+    taskOptions?.skipUserApiVerify,
+    taskOptions?.userApiVerifyMode,
+  )
 
   return { url, musicInfo, quality, isFromCache: false }
 })
@@ -641,7 +885,11 @@ export const getOnlineOtherSourceMusicUrl = async({ musicInfos, quality, onToggl
 }
 
 const getOtherSourceMusicCandidateKey = (musicInfo: LX.Music.MusicInfoOnline) => `${musicInfo.source}_${musicInfo.id}`
-const groupOtherSourceMusicCandidates = (musicInfos: LX.Music.MusicInfoOnline[], skipSources: LX.OnlineSource[]) => {
+const groupOtherSourceMusicCandidates = (
+  originMusicInfo: MusicInfoLike | null | undefined,
+  musicInfos: LX.Music.MusicInfoOnline[],
+  skipSources: LX.OnlineSource[],
+) => {
   const seenCandidates = new Set<string>()
   const sourceGroups = new Map<LX.OnlineSource, LX.Music.MusicInfoOnline[]>()
   const orderedGroups: Array<{
@@ -651,6 +899,7 @@ const groupOtherSourceMusicCandidates = (musicInfos: LX.Music.MusicInfoOnline[],
   for (const musicInfo of musicInfos) {
     if (skipSources.includes(musicInfo.source)) continue
     if (!assertApiSupport(musicInfo.source)) continue
+    if (originMusicInfo && !getTrustedResolvedSourceMusicInfo(originMusicInfo, musicInfo)) continue
     const candidateKey = getOtherSourceMusicCandidateKey(musicInfo)
     if (seenCandidates.has(candidateKey)) continue
     seenCandidates.add(candidateKey)
@@ -668,12 +917,13 @@ const groupOtherSourceMusicCandidates = (musicInfos: LX.Music.MusicInfoOnline[],
   return orderedGroups
 }
 
-export const getOnlineOtherSourceMusicUrlTask = ({ musicInfos, quality, onToggleSource, isRefresh, retryedSource = [], taskOptions }: {
+export const getOnlineOtherSourceMusicUrlTask = ({ musicInfos, quality, onToggleSource, isRefresh, retryedSource = [], originMusicInfo, taskOptions }: {
   musicInfos: LX.Music.MusicInfoOnline[]
   quality?: LX.Quality
   onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
   isRefresh: boolean
   retryedSource?: LX.OnlineSource[]
+  originMusicInfo?: MusicInfoLike
   taskOptions?: MusicUrlTaskOptions
 }): CancelableTask<{
   url: string
@@ -684,7 +934,11 @@ export const getOnlineOtherSourceMusicUrlTask = ({ musicInfos, quality, onToggle
   if (!await window.lx.apiInitPromise[0]) throw new Error('source init failed')
   const cacheSourceId = appSetting['common.apiSource']
 
-  const sourceGroups = groupOtherSourceMusicCandidates(musicInfos, retryedSource)
+  const sourceGroups = groupOtherSourceMusicCandidates(
+    originMusicInfo,
+    musicInfos.filter(item => !isExcludedComparableMusicInfo(item, taskOptions)),
+    retryedSource,
+  )
   if (!sourceGroups.length) throw new Error(window.i18n.t('toggle_source_failed'))
 
   const createSourceGroupTask = (sourceMusicInfos: LX.Music.MusicInfoOnline[]) => createCancelableTask<{
@@ -731,7 +985,13 @@ export const getOnlineOtherSourceMusicUrlTask = ({ musicInfos, quality, onToggle
       try {
         const { url, type } = await timedTask.promise
         throwIfGroupCancelled()
-        await verifyPlayableUrlIfNeeded(url, setGroupCancel, throwIfGroupCancelled, taskOptions?.skipUserApiVerify)
+        await verifyPlayableUrlIfNeeded(
+          url,
+          setGroupCancel,
+          throwIfGroupCancelled,
+          taskOptions?.skipUserApiVerify,
+          taskOptions?.userApiVerifyMode,
+        )
         return { musicInfo, url, quality: type, isFromCache: false }
       } catch (err: any) {
         if (err.message == requestMsg.cancelRequest) throw err
@@ -846,35 +1106,48 @@ export const handleGetOnlineMusicUrlTask = ({ musicInfo, quality, onToggleSource
   // console.log(musicInfo.source)
   const targetQuality = quality ?? getPlayQuality(appSetting['player.playQuality'], musicInfo)
   const cacheSourceId = appSetting['common.apiSource']
+  const isCurrentMusicInfoExcluded = isExcludedComparableMusicInfo(musicInfo, taskOptions)
 
-  const cachedUrlInfo = await tryUseCachedMusicUrlInfo(
-    musicInfo,
-    targetQuality,
-    isRefresh,
-    cacheSourceId,
-    taskOptions,
-    setCancel,
-    throwIfCancelled,
-  )
-  if (cachedUrlInfo) {
-    return {
-      musicInfo: cachedUrlInfo.resolvedMusicInfo ?? musicInfo,
-      url: cachedUrlInfo.url,
-      quality: targetQuality,
-      isFromCache: true,
+  if (!isCurrentMusicInfoExcluded) {
+    const cachedUrlInfo = await tryUseCachedMusicUrlInfo(
+      musicInfo,
+      targetQuality,
+      isRefresh,
+      cacheSourceId,
+      taskOptions,
+      setCancel,
+      throwIfCancelled,
+    )
+    if (cachedUrlInfo) {
+      return {
+        musicInfo: cachedUrlInfo.resolvedMusicInfo ?? musicInfo,
+        url: cachedUrlInfo.url,
+        quality: targetQuality,
+        isFromCache: true,
+      }
     }
   }
 
-  const task = applyTaskTimeout(createMusicUrlRequestTask(musicInfo, targetQuality), taskOptions?.urlTimeout)
-  setCancel(task.cancel)
   try {
+    if (isCurrentMusicInfoExcluded) throw new Error(window.i18n.t('toggle_source_failed'))
+    const task = applyTaskTimeout(createMusicUrlRequestTask(musicInfo, targetQuality), taskOptions?.urlTimeout)
+    setCancel(task.cancel)
     const { url, type } = await task.promise
     throwIfCancelled()
-    await verifyPlayableUrlIfNeeded(url, setCancel, throwIfCancelled, taskOptions?.skipUserApiVerify)
+    await verifyPlayableUrlIfNeeded(
+      url,
+      setCancel,
+      throwIfCancelled,
+      taskOptions?.skipUserApiVerify,
+      taskOptions?.userApiVerifyMode,
+    )
     return { musicInfo, url, quality: type, isFromCache: false }
   } catch (err: any) {
     console.log(err)
-    if (!allowToggleSource || err.message == requestMsg.cancelRequest || err.message == requestMsg.tooManyRequests) throw err
+    if (!allowToggleSource ||
+      err.message == requestMsg.cancelRequest ||
+      (err.message == requestMsg.tooManyRequests && !taskOptions?.allowTooManyRequestsFallback)
+    ) throw err
     throwIfCancelled()
     onToggleSource()
     let otherSource: LX.Music.MusicInfoOnline[]
@@ -894,6 +1167,7 @@ export const handleGetOnlineMusicUrlTask = ({ musicInfo, quality, onToggleSource
         quality,
         isRefresh,
         retryedSource: [musicInfo.source],
+        originMusicInfo: musicInfo,
         taskOptions,
       })
       setCancel(nextTask.cancel)
@@ -904,18 +1178,19 @@ export const handleGetOnlineMusicUrlTask = ({ musicInfo, quality, onToggleSource
 })
 
 
-export const getOnlineOtherSourcePicUrl = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [], taskOptions }: {
+export const getOnlineOtherSourcePicUrl = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [], originMusicInfo, taskOptions }: {
   musicInfos: LX.Music.MusicInfoOnline[]
   onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
   isRefresh: boolean
   retryedSource?: LX.OnlineSource[]
+  originMusicInfo?: MusicInfoLike
   taskOptions?: MusicUrlTaskOptions
 }): Promise<{
   url: string
   musicInfo: LX.Music.MusicInfoOnline
   isFromCache: boolean
 }> => {
-  const sourceGroups = groupOtherSourceMusicCandidates(musicInfos, retryedSource)
+  const sourceGroups = groupOtherSourceMusicCandidates(originMusicInfo, musicInfos, retryedSource)
   let lastError: Error | null = null
   let hasTriedCandidate = false
   for (const { musicInfos: sourceMusicInfos } of sourceGroups) {
@@ -972,6 +1247,7 @@ export const handleGetOnlinePicUrl = async({ musicInfo, isRefresh, onToggleSourc
           onToggleSource,
           isRefresh,
           retryedSource: [musicInfo.source],
+          originMusicInfo: musicInfo,
         })
       }
       throw err
@@ -980,18 +1256,19 @@ export const handleGetOnlinePicUrl = async({ musicInfo, isRefresh, onToggleSourc
 }
 
 
-export const getOnlineOtherSourceLyricInfo = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [], taskOptions }: {
+export const getOnlineOtherSourceLyricInfo = async({ musicInfos, onToggleSource, isRefresh, retryedSource = [], originMusicInfo, taskOptions }: {
   musicInfos: LX.Music.MusicInfoOnline[]
   onToggleSource: (musicInfo?: LX.Music.MusicInfoOnline) => void
   isRefresh: boolean
   retryedSource?: LX.OnlineSource[]
+  originMusicInfo?: MusicInfoLike
   taskOptions?: MusicUrlTaskOptions
 }): Promise<{
   lyricInfo: LX.Music.LyricInfo | LX.Player.LyricInfo
   musicInfo: LX.Music.MusicInfoOnline
   isFromCache: boolean
 }> => {
-  const sourceGroups = groupOtherSourceMusicCandidates(musicInfos, retryedSource)
+  const sourceGroups = groupOtherSourceMusicCandidates(originMusicInfo, musicInfos, retryedSource)
   let lastError: Error | null = null
   let hasTriedCandidate = false
   for (const { musicInfos: sourceMusicInfos } of sourceGroups) {
@@ -1061,6 +1338,7 @@ export const handleGetOnlineLyricInfo = async({ musicInfo, onToggleSource, isRef
           onToggleSource,
           isRefresh,
           retryedSource: [musicInfo.source],
+          originMusicInfo: musicInfo,
         })
       }
       throw err

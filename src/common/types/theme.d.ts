@@ -275,6 +275,7 @@ declare namespace LX {
         '--background-image-size': string
 
         // 关闭按钮颜色
+        '--color-btn-font': string
         '--color-btn-hide': string
         '--color-btn-min': string
         '--color-btn-close': string

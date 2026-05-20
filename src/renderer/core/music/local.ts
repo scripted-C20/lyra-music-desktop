@@ -218,7 +218,13 @@ export const createGetMusicUrlTask = ({ musicInfo, isRefresh, allowToggleSource 
 
       onToggleSource()
       return getOtherSourceByLocal(musicInfo, async(otherSource) => {
-        const task = getOnlineOtherSourceMusicUrlTask({ musicInfos: [...otherSource], onToggleSource, isRefresh, taskOptions })
+        const task = getOnlineOtherSourceMusicUrlTask({
+          musicInfos: [...otherSource],
+          onToggleSource,
+          isRefresh,
+          originMusicInfo: musicInfo,
+          taskOptions,
+        })
         cancelTask = task.cancel
         const { url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache } = await task.promise
         if (isCancelled) throw new Error(requestMsg.cancelRequest)
@@ -261,6 +267,7 @@ export const getPicUrl = async({ musicInfo, listId, isRefresh, onToggleSource = 
       musicInfos: [...otherSource],
       onToggleSource,
       isRefresh,
+      originMusicInfo: musicInfo,
       taskOptions,
     }).then(({ url, musicInfo: targetMusicInfo, isFromCache }) => {
       if (listId) {
@@ -328,6 +335,7 @@ export const getLyricInfo = async({ musicInfo, isRefresh, onToggleSource = () =>
       musicInfos: [...otherSource],
       onToggleSource,
       isRefresh,
+      originMusicInfo: musicInfo,
       taskOptions,
     }).then(async({ lyricInfo, musicInfo: targetMusicInfo, isFromCache }) => {
       void saveLyric(musicInfo, lyricInfo)

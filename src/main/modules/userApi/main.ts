@@ -119,6 +119,7 @@ export const createUserApiWindowController = (): UserApiWindowController => {
         nodeIntegration: false,
         nodeIntegrationInWorker: false,
         sandbox: false,
+        backgroundThrottling: false,
         spellcheck: false,
         autoplayPolicy: 'document-user-activation-required',
         enableWebSQL: false,

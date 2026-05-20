@@ -16,6 +16,7 @@ import { proxyCallback } from '@renderer/worker/utils'
 import { arrPush, arrUnshift, joinPath } from '@renderer/utils'
 import { DOWNLOAD_STATUS } from '@common/constants'
 import { getPreferredResolvedSourceMusicInfo } from '@renderer/core/player/runtimeSourceMemory'
+import { getTrustedResolvedSourceMusicInfo } from '@renderer/core/music/utils'
 import { proxy } from '../index'
 import { buildSavePath } from './utils'
 
@@ -207,7 +208,7 @@ const downloadLyric = (downloadInfo: LX.Download.ListItem) => {
 }
 
 const getUrl = async(downloadInfo: LX.Download.ListItem, isRefresh: boolean = false) => {
-  let toggleMusicInfo = getPreferredResolvedSourceMusicInfo(downloadInfo)
+  let toggleMusicInfo = getTrustedResolvedSourceMusicInfo(downloadInfo, getPreferredResolvedSourceMusicInfo(downloadInfo), 'memory')
   return (toggleMusicInfo ? getMusicUrl({
     musicInfo: toggleMusicInfo,
     isRefresh,
@@ -224,7 +225,7 @@ const getUrl = async(downloadInfo: LX.Download.ListItem, isRefresh: boolean = fa
 }
 const handleRefreshUrl = (downloadInfo: LX.Download.ListItem) => {
   setStatusText(downloadInfo, window.i18n.t('download_status_error_refresh_url'))
-  let toggleMusicInfo = getPreferredResolvedSourceMusicInfo(downloadInfo)
+  let toggleMusicInfo = getTrustedResolvedSourceMusicInfo(downloadInfo, getPreferredResolvedSourceMusicInfo(downloadInfo), 'memory')
   ;(toggleMusicInfo ? getMusicUrl({
     musicInfo: toggleMusicInfo,
     isRefresh: true,

@@ -168,7 +168,7 @@ export default {
   padding: 20px 22px 22px;
   background:
     radial-gradient(circle at top left, var(--color-primary-light-300-alpha-800), transparent 34%),
-    linear-gradient(180deg, rgba(252, 252, 253, 0.98), rgba(245, 245, 247, 0.98));
+    linear-gradient(180deg, var(--color-main-background), var(--color-main-background));
 }
 
 .sidebar {

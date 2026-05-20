@@ -3,15 +3,15 @@ div(:class="$style.header" @dblclick="handleHeaderDblclick")
   div(:class="$style.dragZone" @dblclick.stop="handleHeaderDblclick")
   div(ref="dom_btns" :class="$style.controBtn")
     button(ref="dom_hide_btn" type="button" :class="$style.hide" :aria-label="$t('player__hide_detail_tip')" ignore-tip :title="$t('player__hide_detail_tip')" @click="hide")
-      line-icon(:icon="ChevronDown" :size="16" :stroke-width="2.35" :class="$style.controBtnIcon")
+      line-icon(:icon="ChevronDown" :size="14" :stroke-width="2.35" :class="$style.controBtnIcon")
     button(type="button" :class="$style.min" :aria-label="$t('min')" ignore-tip :title="$t('min')" @click="minWindow")
-      line-icon(:icon="Minus" :size="16" :stroke-width="2.2" :class="$style.controBtnIcon")
+      line-icon(:icon="Minus" :size="14" :stroke-width="2.2" :class="$style.controBtnIcon")
     button(ref="dom_mode_btn" type="button" :class="$style.modeBtn" :aria-label="modeBtnTitle" ignore-tip :title="modeBtnTitle" @click="toggleWindowMode")
-      line-icon(:icon="modeBtnIcon" :size="15" :stroke-width="2.15" :class="$style.controBtnIcon")
+      line-icon(:icon="modeBtnIcon" :size="13" :stroke-width="2.15" :class="$style.controBtnIcon")
 
     //- button(type="button" :class="$style.max" @click="max")
     button(type="button" :class="$style.close" :aria-label="$t('close')" ignore-tip :title="$t('close')" @click="closeWindow")
-      line-icon(:icon="X" :size="16" :stroke-width="2.25" :class="$style.controBtnIcon")
+      line-icon(:icon="X" :size="14" :stroke-width="2.25" :class="$style.controBtnIcon")
 </template>
 
 
@@ -153,41 +153,53 @@ const toggleWindowMode = () => {
   .controBtn {
     right: 0;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     padding: 4px 2px 0 0;
     button {
-      width: 36px;
-      height: 30px;
+      width: 38px;
+      height: 34px;
       padding: 0;
-      color: var(--ui-text-secondary);
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(246, 247, 250, 0.66));
-      border: 1px solid rgba(255, 255, 255, 0.72);
+      color: var(--color-font-label);
+      border: none;
       border-radius: 12px;
       box-shadow:
-        0 6px 16px rgba(15, 23, 42, 0.04),
+        0 2px 8px rgba(15, 23, 42, 0.05),
         inset 0 1px 0 rgba(255, 255, 255, 0.72);
-      backdrop-filter: blur(10px) saturate(1.02);
-      transition: color 0.2s ease-in-out, background-color 0.2s ease-in-out, transform 0.18s ease, box-shadow 0.18s ease;
+      backdrop-filter: none;
+      transition: all 0.15s ease;
+      line-height: 0;
+      overflow: hidden;
+      background-image: none;
+
+      &.hide {
+        background-color: var(--color-button-background);
+      }
+
+      &.min {
+        background-color: var(--color-button-background);
+      }
+
+      &.modeBtn {
+        background-color: var(--color-button-background);
+      }
+
+      &.close {
+        background-color: var(--color-button-background);
+      }
 
       &.hover {
-        transform: translateY(-1px);
-        color: var(--ui-text-primary);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 248, 250, 0.84));
-        box-shadow:
-          0 10px 18px rgba(15, 23, 42, 0.06),
-          inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        color: var(--ui-text-accent);
+        background-color: var(--color-primary-light-300-alpha-800);
 
         &.close {
-          color: #fff;
-          background: linear-gradient(135deg, var(--color-btn-close), var(--color-btn-close));
-          box-shadow:
-            0 10px 18px rgba(244, 63, 94, 0.18),
-            inset 0 1px 0 rgba(255, 255, 255, 0.22);
+          color: var(--ui-text-accent);
+          background-color: var(--color-primary-light-300-alpha-800);
         }
       }
 
       &:active {
-        transform: scale(0.96);
+        color: var(--ui-text-accent);
+        background-color: var(--color-primary-alpha-900);
       }
     }
   }
@@ -205,16 +217,17 @@ const toggleWindowMode = () => {
 }
 
 .controBtnIcon {
-  width: 16px;
-  height: 16px;
-  opacity: .84;
-  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+  display: block;
+  width: 14px;
+  height: 14px;
+  opacity: .8;
+  transition: opacity 0.15s ease;
 }
 
 .modeBtn {
   .controBtnIcon {
-    width: 15px;
-    height: 15px;
+    width: 13px;
+    height: 13px;
     opacity: .92;
   }
 }

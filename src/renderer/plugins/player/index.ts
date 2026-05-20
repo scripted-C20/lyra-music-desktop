@@ -396,6 +396,11 @@ export const setResource = (src: string) => {
   if (audio) audio.src = src
 }
 
+export const getResource = () => {
+  if (audio?.currentSrc) return audio.currentSrc
+  return audio?.src ?? ''
+}
+
 export const setPlay = () => {
   void audio?.play()
 }
@@ -468,13 +473,21 @@ export const getDuration = () => {
 // }
 
 type Noop = () => void
+type PlayerEventCallback = (resourceUrl: string) => void
 
-export const onPlaying = (callback: Noop) => {
+const createPlayerEventHandler = (callback: PlayerEventCallback) => {
+  return () => {
+    callback(getResource())
+  }
+}
+
+export const onPlaying = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('playing', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('playing', handler)
   return () => {
-    audio?.removeEventListener('playing', callback)
+    audio?.removeEventListener('playing', handler)
   }
 }
 
@@ -487,48 +500,53 @@ export const onPause = (callback: Noop) => {
   }
 }
 
-export const onEnded = (callback: Noop) => {
+export const onEnded = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('ended', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('ended', handler)
   return () => {
-    audio?.removeEventListener('ended', callback)
+    audio?.removeEventListener('ended', handler)
   }
 }
 
-export const onError = (callback: Noop) => {
+export const onError = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('error', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('error', handler)
   return () => {
-    audio?.removeEventListener('error', callback)
+    audio?.removeEventListener('error', handler)
   }
 }
 
-export const onLoadeddata = (callback: Noop) => {
+export const onLoadeddata = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('loadeddata', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('loadeddata', handler)
   return () => {
-    audio?.removeEventListener('loadeddata', callback)
+    audio?.removeEventListener('loadeddata', handler)
   }
 }
 
-export const onLoadstart = (callback: Noop) => {
+export const onLoadstart = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('loadstart', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('loadstart', handler)
   return () => {
-    audio?.removeEventListener('loadstart', callback)
+    audio?.removeEventListener('loadstart', handler)
   }
 }
 
-export const onCanplay = (callback: Noop) => {
+export const onCanplay = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('canplay', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('canplay', handler)
   return () => {
-    audio?.removeEventListener('canplay', callback)
+    audio?.removeEventListener('canplay', handler)
   }
 }
 
@@ -551,12 +569,13 @@ export const onTimeupdate = (callback: Noop) => {
 }
 
 // 缓冲中
-export const onWaiting = (callback: Noop) => {
+export const onWaiting = (callback: PlayerEventCallback) => {
   if (!audio) throw new Error('audio not defined')
 
-  audio.addEventListener('waiting', callback)
+  const handler = createPlayerEventHandler(callback)
+  audio.addEventListener('waiting', handler)
   return () => {
-    audio?.removeEventListener('waiting', callback)
+    audio?.removeEventListener('waiting', handler)
   }
 }
 

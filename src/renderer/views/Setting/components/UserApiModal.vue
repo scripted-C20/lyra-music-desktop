@@ -126,7 +126,7 @@ import { dialog } from '@renderer/plugins/Dialog'
 import musicSdk from '@renderer/utils/musicSdk'
 import { builtinOnlineSourceIds, getBuiltinFallbackSourceId } from '@renderer/utils/musicSdk/source-fallback'
 import { toNewMusicInfo } from '@renderer/utils'
-import { createPlaybackVerifyTask } from '@renderer/core/music/utils'
+import { createLightPlaybackVerifyTask, createPlaybackVerifyTask } from '@renderer/core/music/utils'
 import { requestMsg } from '@renderer/utils/message'
 import { httpFetch } from '@renderer/utils/request'
 import { CircleHelp, ExternalLink, LoaderCircle, RefreshCw, X } from 'lucide-vue-next'
@@ -168,6 +168,7 @@ const TEST_SEARCH_RESULT_LIMIT = 20
 const MAX_TEST_SAMPLES_PER_SOURCE = 8
 const BATCH_TEST_CONCURRENCY = 5
 const BATCH_FULL_TEST_CONCURRENCY = 5
+const LATENCY_TEST_SAMPLE_CACHE_TTL = 5 * 60_000
 const USER_API_README_URL = 'https://lyswhut.github.io/lx-music-doc/desktop/custom-source'
 const USER_API_FAQ_URL = 'https://lyswhut.github.io/lx-music-doc/desktop/faq'
 const getSubscribeOriginFallbackName = (subscribeUrl) => {
@@ -223,6 +224,11 @@ const STOP_LATENCY_TEST_BUTTON_TEXT = '停止测试'
 const LATENCY_TEST_CANCEL_MESSAGE = 'Cancel request'
 const BATCH_SAMPLE_PREPARE_KEY = '__batch__'
 const createLatencyTestCancelError = () => new Error(LATENCY_TEST_CANCEL_MESSAGE)
+const createQuickVerifyPlayableUrlTask = url => createLightPlaybackVerifyTask(url, {
+  failedMessage: 'play verify failed',
+  timeoutMessage: 'play verify timeout',
+  cancelMessage: LATENCY_TEST_CANCEL_MESSAGE,
+})
 const createStrictVerifyPlayableUrlTask = url => createPlaybackVerifyTask(url, {
   failedMessage: 'play verify failed',
   timeoutMessage: 'play verify timeout',
@@ -284,6 +290,7 @@ export default {
         total: 0,
       },
       latencyTestSamples: null,
+      latencyTestSamplesAt: 0,
       latencyTestSamplesPromise: null,
       samplePrepareWaiters: {},
       verifyTasks: {},
@@ -461,7 +468,11 @@ export default {
     },
     invalidateLatencyTestSamples() {
       this.latencyTestSamples = null
+      this.latencyTestSamplesAt = 0
       this.latencyTestSamplesPromise = null
+    },
+    isLatencyTestSamplesExpired() {
+      return !this.latencyTestSamplesAt || Date.now() - this.latencyTestSamplesAt > LATENCY_TEST_SAMPLE_CACHE_TTL
     },
     async waitForLatencyTestSamples(waiterKey = '', options = {}) {
       if (!waiterKey) return this.getLatencyTestSamples(options)
@@ -1065,7 +1076,7 @@ export default {
       throw new Error(`${this.getSourceDisplayName(source)} ${this.$t('user_api__test_latency_search_failed')}`)
     },
     async getLatencyTestSamples(options = {}) {
-      if (options.forceRefresh && !this.latencyTestSamplesPromise) this.invalidateLatencyTestSamples()
+      if ((options.forceRefresh || this.isLatencyTestSamplesExpired()) && !this.latencyTestSamplesPromise) this.invalidateLatencyTestSamples()
       if (this.latencyTestSamples) return this.latencyTestSamples
       if (this.latencyTestSamplesPromise) return this.latencyTestSamplesPromise
       this.isPreparingSamples = true
@@ -1079,6 +1090,7 @@ export default {
         const samples = Object.fromEntries(entries.filter(Boolean))
         if (!Object.keys(samples).length) throw new Error(this.$t('user_api__test_latency_search_failed'))
         this.latencyTestSamples = samples
+        this.latencyTestSamplesAt = Date.now()
         return samples
       }).finally(() => {
         this.isPreparingSamples = false
@@ -1119,7 +1131,10 @@ export default {
           return message
       }
     },
-    async executeLatencyTest(apiId, samples, onRequestResult = null) {
+    async executeLatencyTest(apiId, samples, {
+      createVerifyTask = createQuickVerifyPlayableUrlTask,
+      onRequestResult = null,
+    } = {}) {
       const startedAt = Date.now()
       let remainingSamples = cloneLatencyTestSamples(samples)
       let lastVerifyError = null
@@ -1139,7 +1154,7 @@ export default {
 
         try {
           this.throwIfLatencyTestStopped(apiId)
-          const verifyTask = createStrictVerifyPlayableUrlTask(result.url)
+          const verifyTask = createVerifyTask(result.url)
           this.setVerifyTask(apiId, verifyTask)
           const verifyLatency = await verifyTask.promise.finally(() => {
             this.clearVerifyTask(apiId, verifyTask)
@@ -1169,18 +1184,21 @@ export default {
       })
       let lastAttemptResult = null
       try {
-        const strictResult = await this.executeLatencyTest(api.id, samples, result => {
-          lastAttemptResult = {
-            source: result.source,
-            quality: result.quality,
-            musicInfo: result.musicInfo,
-          }
-          this.setTestState(api.id, {
-            ...result,
-            mode: 'quick',
-            status: 'testing',
-            message: this.$t('user_api__test_latency_verifying'),
-          })
+        const strictResult = await this.executeLatencyTest(api.id, samples, {
+          createVerifyTask: createQuickVerifyPlayableUrlTask,
+          onRequestResult: result => {
+            lastAttemptResult = {
+              source: result.source,
+              quality: result.quality,
+              musicInfo: result.musicInfo,
+            }
+            this.setTestState(api.id, {
+              ...result,
+              mode: 'quick',
+              status: 'testing',
+              message: this.$t('user_api__test_latency_verifying'),
+            })
+          },
         })
         this.setTestState(api.id, {
           ...strictResult,
@@ -1248,20 +1266,23 @@ export default {
             quality: '',
           }
           try {
-            const strictResult = await this.executeLatencyTest(api.id, sourceSamples, result => {
-              lastAttemptResult = {
-                source: result.source ?? source,
-                quality: result.quality ?? '',
-                musicInfo: result.musicInfo,
-              }
-              this.setTestState(api.id, this.buildFullTestState(results, {
-                status: 'testing',
-                currentSource: result.source ?? source,
-                currentQuality: result.quality ?? '',
-                currentIndex,
-                total,
-                message: this.$t('user_api__test_latency_verifying'),
-              }))
+            const strictResult = await this.executeLatencyTest(api.id, sourceSamples, {
+              createVerifyTask: createStrictVerifyPlayableUrlTask,
+              onRequestResult: result => {
+                lastAttemptResult = {
+                  source: result.source ?? source,
+                  quality: result.quality ?? '',
+                  musicInfo: result.musicInfo,
+                }
+                this.setTestState(api.id, this.buildFullTestState(results, {
+                  status: 'testing',
+                  currentSource: result.source ?? source,
+                  currentQuality: result.quality ?? '',
+                  currentIndex,
+                  total,
+                  message: this.$t('user_api__test_latency_verifying'),
+                }))
+              },
             })
             results.push({
               ...strictResult,
@@ -1320,7 +1341,9 @@ export default {
         message: this.$t('user_api__test_latency_preparing'),
       })
       try {
-        const samples = await this.waitForLatencyTestSamples(api.id)
+        const samples = await this.waitForLatencyTestSamples(api.id, {
+          forceRefresh: this.testStates[api.id]?.status === 'error',
+        })
         if (this.isPendingStopTestApi(api.id)) {
           this.removeTestState(api.id)
           return
@@ -1353,7 +1376,9 @@ export default {
         message: this.$t('user_api__test_latency_full_preparing'),
       })
       try {
-        const samples = await this.waitForLatencyTestSamples(api.id)
+        const samples = await this.waitForLatencyTestSamples(api.id, {
+          forceRefresh: this.testStates[api.id]?.status === 'error',
+        })
         if (this.isPendingStopTestApi(api.id)) {
           this.removeTestState(api.id)
           return

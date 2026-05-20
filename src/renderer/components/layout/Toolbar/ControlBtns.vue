@@ -1,13 +1,13 @@
 <template>
   <div v-show="!isFullscreen" ref="dom_btns" :class="$style.control">
     <button type="button" :class="[$style.btn, $style.min]" :aria-label="$t('min')" ignore-tip :title="$t('min')" @click="minWindow">
-      <line-icon :icon="Minus" :size="16" :stroke-width="2.2" :class="$style.btnIcon" />
+      <line-icon :icon="Minus" :size="14" :stroke-width="2.2" :class="$style.btnIcon" />
     </button>
     <button type="button" :class="[$style.btn, $style.max]" :aria-label="maxBtnTitle" ignore-tip :title="maxBtnTitle" @click="toggleMaxWindow">
-      <line-icon :icon="maxBtnIcon" :size="15" :stroke-width="2.15" :class="$style.btnIcon" />
+      <line-icon :icon="maxBtnIcon" :size="13" :stroke-width="2.15" :class="$style.btnIcon" />
     </button>
     <button type="button" :class="[$style.btn, $style.close]" :aria-label="$t('close')" ignore-tip :title="$t('close')" @click="closeWindow">
-      <line-icon :icon="X" :size="16" :stroke-width="2.25" :class="$style.btnIcon" />
+      <line-icon :icon="X" :size="14" :stroke-width="2.25" :class="$style.btnIcon" />
     </button>
   </div>
 </template>
@@ -91,7 +91,7 @@ onBeforeUnmount(() => {
   align-self: center;
   -webkit-app-region: no-drag;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   height: @height-toolbar;
 
   .btn {
@@ -99,43 +99,55 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: center;
     position: relative;
-    width: 36px;
-    height: 30px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.14));
+    width: 38px;
+    height: 34px;
+    background-color: transparent;
+    background-image: none;
     border: none;
     outline: none;
     padding: 0;
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.82);
-    transition: color 0.2s ease-in-out, background-color 0.2s ease-in-out, transform 0.16s ease, box-shadow 0.16s ease;
+    color: var(--color-font-label);
+    transition: all 0.15s ease;
     border-radius: 12px;
     box-shadow:
-      0 6px 14px rgba(15, 23, 42, 0.04),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+      0 2px 8px rgba(15, 23, 42, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    &.min {
+      background-color: var(--color-button-background);
+    }
+    &.max {
+      background-color: var(--color-button-background);
+    }
+    &.close {
+      background-color: var(--color-button-background);
+    }
     &.hover {
-      &.min, &.max {
-        color: rgba(255, 255, 255, 0.94);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.2));
+      &.min {
+        color: var(--ui-text-accent);
+        background-color: var(--color-primary-light-300-alpha-800);
+      }
+      &.max {
+        color: var(--ui-text-accent);
+        background-color: var(--color-primary-light-300-alpha-800);
       }
       &.close {
-        color: #fff;
-        background: linear-gradient(135deg, rgba(251, 113, 133, 0.92), rgba(244, 63, 94, 0.9));
-        box-shadow:
-          0 10px 18px rgba(244, 63, 94, 0.18),
-          inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        color: var(--ui-text-accent);
+        background-color: var(--color-primary-light-300-alpha-800);
       }
     }
     &:active {
-      transform: scale(0.96);
+      color: var(--ui-text-accent);
+      background-color: var(--color-primary-alpha-900);
     }
   }
 }
 
 .btnIcon {
-  width: 16px;
-  height: 16px;
-  opacity: .88;
-  transition: opacity 0.18s ease-in-out, transform 0.18s ease;
+  width: 14px;
+  height: 14px;
+  opacity: .8;
+  transition: opacity 0.15s ease;
 }
 
 </style>

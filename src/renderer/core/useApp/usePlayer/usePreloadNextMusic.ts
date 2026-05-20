@@ -6,7 +6,7 @@ import { musicInfo } from '@renderer/store/player/state'
 import { getNextPlayMusicInfo, resetRandomNextMusicInfo } from '@renderer/core/player'
 import { getPlaybackMusicUrlTaskOptions } from '@renderer/core/player/utils'
 import { createGetMusicUrlTask } from '@renderer/core/music'
-import { createPlaybackVerifyTask } from '@renderer/core/music/utils'
+import { createLightPlaybackVerifyTask, getTrustedResolvedSourceMusicInfo, isManualToggleSourceMusicInfo } from '@renderer/core/music/utils'
 import { savePreloadedMusicUrl } from '@renderer/core/player/musicUrlState'
 import { clearRuntimeSourceMemory, getPreferredResolvedSourceMusicInfo } from '@renderer/core/player/runtimeSourceMemory'
 import { appSetting } from '@renderer/store/setting'
@@ -26,7 +26,7 @@ const cancelPreloadTask = () => {
 }
 const checkMusicUrl = async(url: string, requestId: string): Promise<boolean> => {
   if (!isActivePreloadRequest(requestId)) return false
-  const verifyTask = createPlaybackVerifyTask(url)
+  const verifyTask = createLightPlaybackVerifyTask(url)
   const cancelCheck = () => {
     verifyTask.cancel()
   }
@@ -46,19 +46,28 @@ const requestPreloadUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.List
   const task = createGetMusicUrlTask({
     musicInfo,
     isRefresh,
+    allowToggleSource: !isManualToggleSourceMusicInfo(musicInfo),
     onResolvedMusicInfo(targetResolvedMusicInfo) {
       resolvedMusicInfo = targetResolvedMusicInfo
     },
-    // Preload reuses the same verify task as playback below.
-    taskOptions: getPlaybackMusicUrlTaskOptions({ skipUserApiVerify: true }),
+    // Preload fetches URL without strict playback gating; real playback decides later.
+    taskOptions: getPlaybackMusicUrlTaskOptions({
+      skipUserApiVerify: true,
+      allowTooManyRequestsFallback: true,
+    }),
   })
   currentPreloadTask = task
   try {
     const url = await task.promise
+    const preferredResolvedMusicInfo = getTrustedResolvedSourceMusicInfo(
+      musicInfo,
+      getPreferredResolvedSourceMusicInfo(musicInfo),
+      isManualToggleSourceMusicInfo(musicInfo) ? 'strict' : 'memory',
+    )
     return activePreloadRequestId === requestId
       ? {
           url,
-          resolvedMusicInfo: resolvedMusicInfo ?? getPreferredResolvedSourceMusicInfo(musicInfo),
+          resolvedMusicInfo: resolvedMusicInfo ?? preferredResolvedMusicInfo,
         }
       : { url: '', resolvedMusicInfo: null }
   } finally {

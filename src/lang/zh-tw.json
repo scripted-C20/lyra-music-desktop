@@ -809,7 +809,7 @@
   "user_api__test_latency_init_timeout": "初始化超時",
   "user_api__test_latency_last_source": "最近嘗試 {source} · {quality}",
   "user_api__test_latency_no_source": "目前來源沒有可自動測試的線上平台。",
-  "user_api__test_latency_note": "批量實播測試目前會使用最多 5 個隱藏執行環境視窗並發執行；測試會先按目前播放音質請求真實播放連結，再在客戶端用隱藏音訊校驗該連結能否開始播放。若某首測試歌曲只是在實播校驗階段失敗，會自動換下一首繼續嘗試。請求超時會跟隨搜尋超時設定，實播校驗與真實播放共用同一套可播放校驗邏輯。",
+  "user_api__test_latency_note": "批量實播測試目前會使用最多 5 個隱藏執行環境視窗並發執行；測試會先按目前播放音質請求真實播放連結，再在客戶端做可播放校驗。單次實播測試使用更貼近真實播放的輕校驗，慢速全檢會繼續使用更嚴格的實播校驗。若某首測試歌曲只是在校驗階段失敗，會自動換下一首繼續嘗試。請求超時會跟隨搜尋超時設定。",
   "user_api__test_latency_preparing": "準備測試歌曲中...",
   "user_api__test_latency_search_failed": "沒有找到可用於實播測試的測試歌曲",
   "user_api__test_latency_source_missing": "來源不存在或已被刪除",

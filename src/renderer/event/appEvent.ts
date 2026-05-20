@@ -84,8 +84,8 @@ export class AppEvent extends Event {
   }
 
   // 播放器原始事件
-  playerPlaying() {
-    this.emit('playerPlaying')
+  playerPlaying(resourceUrl = '') {
+    this.emit('playerPlaying', resourceUrl)
   }
 
   playerPause() {
@@ -96,32 +96,32 @@ export class AppEvent extends Event {
     this.emit('playerStop')
   }
 
-  playerEnded() {
-    this.emit('playerEnded')
+  playerEnded(resourceUrl = '') {
+    this.emit('playerEnded', resourceUrl)
   }
 
-  playerError(code?: number) {
-    this.emit('playerError', code)
+  playerError(code?: number, resourceUrl = '') {
+    this.emit('playerError', code, resourceUrl)
   }
 
-  playerLoadeddata() {
-    this.emit('playerLoadeddata')
+  playerLoadeddata(resourceUrl = '') {
+    this.emit('playerLoadeddata', resourceUrl)
   }
 
-  playerLoadstart() {
-    this.emit('playerLoadstart')
+  playerLoadstart(resourceUrl = '') {
+    this.emit('playerLoadstart', resourceUrl)
   }
 
-  playerCanplay() {
-    this.emit('playerCanplay')
+  playerCanplay(resourceUrl = '') {
+    this.emit('playerCanplay', resourceUrl)
   }
 
   playerEmptied() {
     this.emit('playerEmptied')
   }
 
-  playerWaiting() {
-    this.emit('playerWaiting')
+  playerWaiting(resourceUrl = '') {
+    this.emit('playerWaiting', resourceUrl)
   }
 
   playerDeviceChanged() {

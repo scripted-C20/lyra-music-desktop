@@ -156,7 +156,9 @@ export default {
   min-height: 0;
   overflow: hidden;
   border-radius: @radius-card;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 247, 249, 0.94));
+  background:
+    radial-gradient(circle at top left, var(--color-primary-alpha-900), transparent 28%),
+    linear-gradient(180deg, var(--color-main-background), var(--color-main-background));
   border: 1px solid var(--ncm-divider);
   box-shadow: 0 16px 34px rgba(15, 23, 42, 0.05);
 }

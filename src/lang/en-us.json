@@ -809,7 +809,7 @@
   "user_api__test_latency_init_timeout": "Initialization timed out",
   "user_api__test_latency_last_source": "Last tried {source} · {quality}",
   "user_api__test_latency_no_source": "This source has no online platform that can be tested automatically.",
-  "user_api__test_latency_note": "Batch playback testing now runs with up to 5 hidden runtime windows in parallel. Each test first requests the real playback URL using the current playback-quality preference, then uses a hidden audio element in the client to verify that playback can actually start. If one sample only fails at the playback-verification stage, the client will automatically try the next sample. Request timeout follows the search-timeout setting, and playback verification now shares the same playable-check logic used by real playback.",
+  "user_api__test_latency_note": "Batch playback testing now runs with up to 5 hidden runtime windows in parallel. Each test first requests the real playback URL using the current playback-quality preference, then performs client-side playback verification. The quick playback test uses a lighter check that is closer to real playback, while the slow full check keeps the stricter verification path. If one sample only fails during verification, the client will automatically try the next sample. Request timeout follows the search-timeout setting.",
   "user_api__test_latency_preparing": "Preparing test song...",
   "user_api__test_latency_search_failed": "No test song could be prepared for playback testing.",
   "user_api__test_latency_source_missing": "The source no longer exists.",
