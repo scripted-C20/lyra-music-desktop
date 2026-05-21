@@ -13,6 +13,10 @@ import { migrateDBData } from './utils/migrate'
 import { openDirInExplorer } from '@common/utils/electron'
 import { setProxyByHost } from '@common/utils/request'
 
+const getShouldUseDarkColors = () => {
+  return nativeTheme?.shouldUseDarkColors ?? false
+}
+
 export const initGlobalData = () => {
   const envParams = parseEnvParams()
   // envParams.cmdParams.dt = !!envParams.cmdParams.dt
@@ -45,7 +49,7 @@ export const initGlobalData = () => {
       state: new Map(),
     },
     theme: {
-      shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+      shouldUseDarkColors: getShouldUseDarkColors(),
       theme: {
         id: '',
         name: '',
@@ -230,8 +234,8 @@ export const listenerAppEvent = (startApp: () => void) => {
     initScreenParams()
   })
 
-  nativeTheme.addListener('updated', () => {
-    const shouldUseDarkColors = nativeTheme.shouldUseDarkColors
+  nativeTheme?.addListener?.('updated', () => {
+    const shouldUseDarkColors = getShouldUseDarkColors()
     if (shouldUseDarkColors == global.lx.theme.shouldUseDarkColors) return
     global.lx.theme.shouldUseDarkColors = shouldUseDarkColors
     global.lx?.event_app.system_theme_change(shouldUseDarkColors)

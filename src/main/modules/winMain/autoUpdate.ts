@@ -1,11 +1,24 @@
-import { autoUpdater } from 'electron-updater'
 import { log, isWin } from '@common/utils'
 import { mainOn } from '@common/mainIpc'
 import { isExistWindow, sendEvent } from './index'
 import { WIN_MAIN_RENDERER_EVENT_NAME } from '@common/ipcNames'
+import type { AppUpdater } from 'electron-updater'
 
-autoUpdater.logger = log
-autoUpdater.autoDownload = false
+let autoUpdater: AppUpdater | null | undefined
+
+const getAutoUpdater = (): AppUpdater | null => {
+  if (autoUpdater !== undefined) return autoUpdater
+  try {
+    autoUpdater = require('electron-updater').autoUpdater as AppUpdater
+    autoUpdater.logger = log
+    autoUpdater.autoDownload = false
+    return autoUpdater
+  } catch (error) {
+    autoUpdater = null
+    log.error(error)
+    return null
+  }
+}
 // autoUpdater.forceDevUpdateConfig = true
 // autoUpdater.autoDownload = false
 
@@ -77,48 +90,53 @@ const handleSendEvent = (action: WaitEvent) => {
 }
 
 export default () => {
-  autoUpdater.on('checking-for-update', () => {
+  const updater = getAutoUpdater()
+  if (!updater) return
+
+  updater.on('checking-for-update', () => {
     sendStatusToWindow('Checking for update...')
   })
-  autoUpdater.on('update-available', info => {
+  updater.on('update-available', info => {
     sendStatusToWindow('Update available.')
     handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_available, info })
   })
-  autoUpdater.on('update-not-available', info => {
+  updater.on('update-not-available', info => {
     sendStatusToWindow('Update not available.')
     handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_not_available, info })
   })
-  autoUpdater.on('error', err => {
+  updater.on('error', err => {
     sendStatusToWindow('Error in auto-updater.')
     handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_error, info: err.message })
   })
-  autoUpdater.on('download-progress', progressObj => {
+  updater.on('download-progress', progressObj => {
     let log_message = `Download speed: ${progressObj.bytesPerSecond}`
     log_message = `${log_message} - Downloaded ${progressObj.percent}%`
     log_message = `${log_message} (progressObj.transferred/${progressObj.total})`
     sendStatusToWindow(log_message)
     handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_progress, info: progressObj })
   })
-  autoUpdater.on('update-downloaded', info => {
+  updater.on('update-downloaded', info => {
     sendStatusToWindow('Update downloaded.')
     handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_downloaded, info })
   })
 
   mainOn(WIN_MAIN_RENDERER_EVENT_NAME.update_check, () => {
-    console.log('check')
     checkUpdate()
   })
 
   mainOn(WIN_MAIN_RENDERER_EVENT_NAME.update_download_update, () => {
-    if (!autoUpdater.isUpdaterActive()) return
-    void autoUpdater.downloadUpdate()
+    const updater = getAutoUpdater()
+    if (!updater || !updater.isUpdaterActive()) return
+    void updater.downloadUpdate()
   })
 
   mainOn(WIN_MAIN_RENDERER_EVENT_NAME.quit_update, () => {
+    const updater = getAutoUpdater()
+    if (!updater) return
     global.lx.isSkipTrayQuit = true
 
     setTimeout(() => {
-      autoUpdater.quitAndInstall(true, true)
+      updater.quitAndInstall(true, true)
     }, 1000)
   })
 }
@@ -141,7 +159,12 @@ const checkUpdate = () => {
   if (isWin && process.arch.includes('arm')) {
     handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_error, info: 'failed' })
   } else {
-    autoUpdater.autoDownload = global.lx.appSetting['common.tryAutoUpdate']
-    void autoUpdater.checkForUpdates()
+    const updater = getAutoUpdater()
+    if (!updater) {
+      handleSendEvent({ type: WIN_MAIN_RENDERER_EVENT_NAME.update_error, info: 'failed' })
+      return
+    }
+    updater.autoDownload = global.lx.appSetting['common.tryAutoUpdate']
+    void updater.checkForUpdates()
   }
 }

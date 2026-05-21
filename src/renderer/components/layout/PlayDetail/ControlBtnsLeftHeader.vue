@@ -111,7 +111,7 @@ const toggleWindowMode = () => {
 <style lang="less" module>
 @import '@renderer/assets/styles/layout.less';
 
-@control-btn-width: @height-toolbar * .26;
+@detail-control-panel-width: 216px;
 @drag-edge-safe-area: 12px;
 
 :global(.fullscreen) {
@@ -132,7 +132,7 @@ const toggleWindowMode = () => {
 
   .controBtn {
     position: absolute;
-    top: 0;
+    top: 6px;
     z-index: 2;
     display: flex;
     -webkit-app-region: no-drag;
@@ -152,21 +152,24 @@ const toggleWindowMode = () => {
 
   }
   .controBtn {
-    left: 0;
+    left: 10px;
     align-items: center;
-    gap: 8px;
-    padding: 4px 0 0 2px;
+    gap: 10px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
 
     button {
       width: 38px;
       height: 34px;
       padding: 0;
-      color: var(--color-font-label);
+      color: var(--color-detail-btn-font);
       border: none;
       border-radius: 12px;
       box-shadow:
-        0 2px 8px rgba(15, 23, 42, 0.05),
-        inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        0 3px 10px rgba(15, 23, 42, 0.07),
+        inset 0 1px 0 rgba(255, 255, 255, 0.88);
       backdrop-filter: none;
       transition: all 0.15s ease;
       line-height: 0;
@@ -174,34 +177,37 @@ const toggleWindowMode = () => {
       background-image: none;
 
       &.hide {
-        background-color: var(--color-button-background);
+        background-color: var(--color-detail-btn-hide);
       }
 
       &.min {
-        background-color: var(--color-button-background);
+        background-color: var(--color-detail-btn-min);
       }
 
       &.modeBtn {
-        background-color: var(--color-button-background);
+        background-color: var(--color-detail-btn-min);
       }
 
       &.close {
-        background-color: var(--color-button-background);
+        background-color: var(--color-detail-btn-close);
       }
 
       &.hover {
-        color: var(--ui-text-accent);
-        background-color: var(--color-primary-light-300-alpha-800);
-
-        &.close {
-          color: var(--ui-text-accent);
-          background-color: var(--color-primary-light-300-alpha-800);
-        }
+        color: var(--color-detail-btn-font);
+        transform: translateY(-1px);
+        filter: brightness(1.02);
+        box-shadow:
+          0 6px 14px rgba(15, 23, 42, 0.1),
+          inset 0 1px 0 rgba(255, 255, 255, 0.94);
       }
 
       &:active {
-        color: var(--ui-text-accent);
-        background-color: var(--color-primary-alpha-900);
+        color: var(--color-detail-btn-font);
+        transform: scale(0.98);
+        filter: brightness(0.98);
+        box-shadow:
+          0 2px 8px rgba(15, 23, 42, 0.08),
+          inset 0 1px 0 rgba(255, 255, 255, 0.82);
       }
     }
   }
@@ -210,7 +216,7 @@ const toggleWindowMode = () => {
     display: block;
     width: 14px;
     height: 14px;
-    opacity: .8;
+    opacity: .86;
     transition: opacity 0.15s ease;
   }
 
@@ -225,7 +231,7 @@ const toggleWindowMode = () => {
 
 .dragZone {
   position: absolute;
-  left: 162px;
+  left: @detail-control-panel-width;
   top: @drag-edge-safe-area;
   right: @drag-edge-safe-area;
   bottom: 0;
@@ -238,7 +244,7 @@ const toggleWindowMode = () => {
   display: block;
   width: 14px;
   height: 14px;
-  opacity: .84;
+  opacity: .86;
   transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
 }
 

@@ -1,6 +1,8 @@
 /* eslint-disable no-template-curly-in-string */
 
 const builder = require('electron-builder')
+const fs = require('fs')
+const path = require('path')
 const beforePack = require('./build-before-pack')
 const afterPack = require('./build-after-pack')
 
@@ -260,6 +262,31 @@ const createTarget = {
   },
 }
 
+const ensureBuildArtifactsReady = () => {
+  const packageInfo = require('../package.json')
+  const buildMetaPath = path.join(__dirname, '../dist/.build-meta.json')
+  const requiredFiles = [
+    path.join(__dirname, '../dist/main.js'),
+    path.join(__dirname, '../dist/index.html'),
+    path.join(__dirname, '../dist/dbService.worker.js'),
+  ]
+
+  for (const filePath of requiredFiles) {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Missing build artifact: ${path.relative(path.join(__dirname, '..'), filePath)}. Please run "node build-config/pack.js" before packaging.`)
+    }
+  }
+
+  if (!fs.existsSync(buildMetaPath)) {
+    throw new Error('Missing dist/.build-meta.json. Please run "node build-config/pack.js" before packaging.')
+  }
+
+  const buildMeta = JSON.parse(fs.readFileSync(buildMetaPath, 'utf8'))
+  if (buildMeta.version !== packageInfo.version) {
+    throw new Error(`Build artifacts version ${buildMeta.version} does not match package version ${packageInfo.version}. Please run "node build-config/pack.js" before packaging.`)
+  }
+}
+
 /**
  *
  * @param {'win' | 'mac' | 'linux' | 'dir'} target 构建目标平台
@@ -269,12 +296,14 @@ const createTarget = {
  */
 const build = async(target, arch, packageType, publishType) => {
   if (target == 'dir') {
+    ensureBuildArtifactsReady()
     await builder.build({
       dir: true,
       config: { ...options, ...winOptions, ...linuxOptions, ...macOptions },
     })
     return
   }
+  ensureBuildArtifactsReady()
   const targetInfo = createTarget[target](arch, packageType)
   // Promise is returned
   await builder.build({

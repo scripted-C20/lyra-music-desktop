@@ -107,38 +107,36 @@ onBeforeUnmount(() => {
     outline: none;
     padding: 0;
     cursor: pointer;
-    color: var(--color-font-label);
+    color: var(--color-btn-font);
     transition: all 0.15s ease;
     border-radius: 12px;
     box-shadow:
-      0 2px 8px rgba(15, 23, 42, 0.05),
-      inset 0 1px 0 rgba(255, 255, 255, 0.72);
+      0 6px 14px rgba(115, 18, 18, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
     &.min {
-      background-color: var(--color-button-background);
+      background-color: var(--color-btn-min);
     }
     &.max {
-      background-color: var(--color-button-background);
+      background-color: var(--color-btn-hide);
     }
     &.close {
-      background-color: var(--color-button-background);
+      background-color: var(--color-btn-close);
     }
     &.hover {
-      &.min {
-        color: var(--ui-text-accent);
-        background-color: var(--color-primary-light-300-alpha-800);
-      }
-      &.max {
-        color: var(--ui-text-accent);
-        background-color: var(--color-primary-light-300-alpha-800);
-      }
-      &.close {
-        color: var(--ui-text-accent);
-        background-color: var(--color-primary-light-300-alpha-800);
-      }
+      color: var(--color-btn-font);
+      transform: translateY(-1px);
+      filter: brightness(1.08);
+      box-shadow:
+        0 8px 18px rgba(115, 18, 18, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.24);
     }
     &:active {
-      color: var(--ui-text-accent);
-      background-color: var(--color-primary-alpha-900);
+      color: var(--color-btn-font);
+      transform: scale(0.97);
+      filter: brightness(0.95);
+      box-shadow:
+        0 4px 10px rgba(115, 18, 18, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12);
     }
   }
 }
@@ -146,7 +144,7 @@ onBeforeUnmount(() => {
 .btnIcon {
   width: 14px;
   height: 14px;
-  opacity: .8;
+  opacity: .98;
   transition: opacity 0.15s ease;
 }
 

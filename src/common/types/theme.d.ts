@@ -280,6 +280,11 @@ declare namespace LX {
         '--color-btn-min': string
         '--color-btn-close': string
 
+        '--color-detail-btn-font': string
+        '--color-detail-btn-hide': string
+        '--color-detail-btn-min': string
+        '--color-detail-btn-close': string
+
         // 徽章颜色
         '--color-badge-primary': string
         '--color-badge-secondary': string

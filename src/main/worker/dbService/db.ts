@@ -3,6 +3,7 @@ import path from 'path'
 import tables, { DB_VERSION } from './tables'
 import verifyDB from './verifyDB'
 import migrateData from './migrate'
+import { log } from '@common/utils'
 
 let db: Database.Database
 
@@ -28,7 +29,8 @@ export const init = (lxDataPath: string): boolean | null => {
       // verbose: process.env.NODE_ENV !== 'production' ? console.log : undefined,
     })
   } catch (error) {
-    console.log(error)
+    if (process.env.NODE_ENV === 'development') console.log(error)
+    else log.error(error)
     db = new Database(databasePath, {
       nativeBinding,
       // verbose: process.env.NODE_ENV !== 'production' ? console.log : undefined,
@@ -51,7 +53,7 @@ export const init = (lxDataPath: string): boolean | null => {
   // db.exec('VACUUM "main"')
 
   process.on('exit', () => db.close())
-  console.log('db inited')
+  if (process.env.NODE_ENV === 'development') console.log('db inited')
   // require('./test')
   return dbFileExists
 }

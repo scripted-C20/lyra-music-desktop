@@ -1,98 +1,142 @@
 <template>
-  <material-modal :show="modelValue" max-height="90%" teleport="#view" @close="handleCancel">
+  <material-modal :show="modelValue" height="90%" max-height="90%" teleport="#view" @close="handleCancel">
     <main :class="$style.main">
-      <h2>{{ themeId ? $t('theme_edit_modal__title_edit') : $t('theme_edit_modal__title_add') }}</h2>
-      <div class="scroll" :class="$style.content">
-        <div :class="[$style.group, $style.base]">
-          <div :class="$style.groupContent">
-            <div :class="$style.item">
-              <div ref="primary_color_ref" :class="$style.color" />
-              <div :class="$style.label">{{ $t('theme_edit_modal__primary') }}</div>
-            </div>
-            <div :class="$style.item">
-              <div ref="font_color_ref" :class="$style.color" />
-              <div :class="$style.label">{{ $t('theme_edit_modal__font') }}</div>
-            </div>
-            <div :class="$style.item">
-              <div ref="app_bg_color_ref" :class="$style.color" />
-              <div :class="$style.label">{{ $t('theme_edit_modal__app_bg') }}</div>
-            </div>
-            <div :class="$style.item">
-              <div ref="aside_font_color_ref" :class="$style.color" />
-              <div :class="$style.label">{{ $t('theme_edit_modal__aside_color') }}</div>
-            </div>
-            <div :class="$style.item">
-              <div ref="main_bg_color_ref" :class="$style.color" />
-              <div :class="$style.label">{{ $t('theme_edit_modal__main_bg') }}</div>
-            </div>
-            <div :class="[$style.item, $style.bg]">
-              <div :class="[$style.bgImg, { [$style.hasBg]: !!bgImg }]" @click="selectBgImg">
-                <img
+      <div :class="$style.body">
+        <h2>{{ themeId ? $t('theme_edit_modal__title_edit') : $t('theme_edit_modal__title_add') }}</h2>
+        <div :class="$style.content">
+          <div :class="[$style.group, $style.base]">
+            <div :class="$style.groupContent">
+              <div :class="$style.item">
+                <div ref="primary_color_ref" :class="$style.color" />
+                <div :class="$style.label">{{ $t('theme_edit_modal__primary') }}</div>
+              </div>
+              <div :class="$style.item">
+                <div ref="font_color_ref" :class="$style.color" />
+                <div :class="$style.label">{{ $t('theme_edit_modal__font') }}</div>
+              </div>
+              <div :class="$style.item">
+                <div ref="app_bg_color_ref" :class="$style.color" />
+                <div :class="$style.label">{{ $t('theme_edit_modal__app_bg') }}</div>
+              </div>
+              <div :class="$style.item">
+                <div ref="aside_font_color_ref" :class="$style.color" />
+                <div :class="$style.label">{{ $t('theme_edit_modal__aside_color') }}</div>
+              </div>
+              <div :class="$style.item">
+                <div ref="main_bg_color_ref" :class="$style.color" />
+                <div :class="$style.label">{{ $t('theme_edit_modal__main_bg') }}</div>
+              </div>
+              <div :class="[$style.item, $style.bg]">
+                <div :class="[$style.bgImg, { [$style.hasBg]: !!bgImg }]" @click="selectBgImg">
+                  <img
 v-if="bgImg" loading="lazy" decoding="async" :class="$style.img" :src="bgImg"
-                  alt="Background Image"
+                    alt="Background Image"
 >
-                <line-icon v-else :class="$style.icon" :icon="ChevronRight" />
-                <button :class="$style.removeBtn" type="button" @click.stop="removeBgImg">
-                  <line-icon :icon="Trash2" :size="14" />
-                </button>
-              </div>
-              <div :class="$style.label">{{ $t('theme_edit_modal__bg_image') }}</div>
-            </div>
-          </div>
-        </div>
-        <div :class="$style.row">
-          <div :class="$style.group">
-            <div :class="$style.groupTitle">
-              <span :class="$style.title">{{ $t('theme_edit_modal__badge') }}</span>
-              <span class="badge badge-theme-primary">{{ $t('tag__lossless') }}</span>
-              <span class="badge badge-theme-secondary">{{ $t('tag__high_quality') }}</span>
-              <span class="badge badge-theme-tertiary">kw</span>
-            </div>
-            <div :class="$style.groupContent">
-              <div :class="$style.item">
-                <div ref="badge_primary_color_ref" :class="$style.color" />
-                <div :class="$style.label">{{ $t('theme_edit_modal__badge_primary') }}</div>
-              </div>
-              <div :class="$style.item">
-                <div ref="badge_secondary_color_ref" :class="$style.color" />
-                <div :class="$style.label">{{ $t('theme_edit_modal__badge_secondary') }}</div>
-              </div>
-              <div :class="$style.item">
-                <div ref="badge_tertiary_color_ref" :class="$style.color" />
-                <div :class="$style.label">{{ $t('theme_edit_modal__badge_tertiary') }}</div>
+                  <line-icon v-else :class="$style.icon" :icon="ChevronRight" />
+                  <button :class="$style.removeBtn" type="button" @click.stop="removeBgImg">
+                    <line-icon :icon="Trash2" :size="14" />
+                  </button>
+                </div>
+                <div :class="$style.label">{{ $t('theme_edit_modal__bg_image') }}</div>
               </div>
             </div>
           </div>
-          <div :class="$style.group">
-            <div :class="$style.groupTitle">
-              <span>{{ $t('theme_edit_modal__control_btn') }}</span>
-              <div :class="$style.controlBtn">
-                <button type="button" :class="$style.hide">
-                  <line-icon
-:class="$style.controlBtnIcon" :icon="RectangleHorizontal" :size="13"
-                    :stroke-width="2.2"
-/>
-                </button>
-                <button type="button" :class="$style.min">
-                  <line-icon :class="$style.controlBtnIcon" :icon="Minus" :size="13" :stroke-width="2.2" />
-                </button>
-                <button type="button" :class="$style.close">
-                  <line-icon :class="$style.controlBtnIcon" :icon="X" :size="13" :stroke-width="2.2" />
-                </button>
+          <div :class="$style.row">
+            <div :class="$style.group">
+              <div :class="$style.groupTitle">
+                <span :class="$style.title">{{ $t('theme_edit_modal__badge') }}</span>
+                <span class="badge badge-theme-primary">{{ $t('tag__lossless') }}</span>
+                <span class="badge badge-theme-secondary">{{ $t('tag__high_quality') }}</span>
+                <span class="badge badge-theme-tertiary">kw</span>
+              </div>
+              <div :class="$style.groupContent">
+                <div :class="$style.item">
+                  <div ref="badge_primary_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__badge_primary') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="badge_secondary_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__badge_secondary') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="badge_tertiary_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__badge_tertiary') }}</div>
+                </div>
               </div>
             </div>
-            <div :class="$style.groupContent">
-              <div :class="$style.item">
-                <div ref="close_btn_color_ref" :class="$style.color" />
-                <div :class="$style.label">{{ $t('theme_edit_modal__close_btn') }}</div>
+            <div :class="$style.group">
+              <div :class="[$style.groupTitle, $style.toolbarTitle]">
+                <span>{{ $t('theme_edit_modal__control_btn') }}</span>
+                <div :class="[$style.previewSurface, $style.previewSurfaceToolbar]">
+                  <div :class="$style.controlBtn">
+                    <button type="button" :class="$style.min">
+                      <line-icon :class="$style.controlBtnIcon" :icon="Minus" :size="13" :stroke-width="2.2" />
+                    </button>
+                    <button type="button" :class="$style.max">
+                      <line-icon :class="$style.controlBtnIcon" :icon="Square" :size="12" :stroke-width="2.1" />
+                    </button>
+                    <button type="button" :class="$style.close">
+                      <line-icon :class="$style.controlBtnIcon" :icon="X" :size="13" :stroke-width="2.2" />
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div :class="$style.item">
-                <div ref="min_btn_color_ref" :class="$style.color" />
-                <div :class="$style.label">{{ $t('theme_edit_modal__min_btn') }}</div>
+              <div :class="[$style.groupContent, $style.controlColorGroup]">
+                <div :class="$style.item">
+                  <div ref="control_btn_font_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__btn_icon') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="close_btn_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__close_btn') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="min_btn_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__min_btn') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="hide_btn_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__max_btn') }}</div>
+                </div>
               </div>
-              <div :class="$style.item">
-                <div ref="hide_btn_color_ref" :class="$style.color" />
-                <div :class="$style.label">{{ $t('theme_edit_modal__hide_btn') }}</div>
+            </div>
+            <div :class="$style.group">
+              <div :class="$style.groupTitle">
+                <span>{{ $t('theme_edit_modal__detail_control_btn') }}</span>
+                <div :class="[$style.previewSurface, $style.previewSurfaceDetail]">
+                  <div :class="$style.detailControlBtn">
+                    <button type="button" :class="$style.detailHide">
+                      <line-icon :class="$style.detailControlBtnIcon" :icon="ChevronDown" :size="13" :stroke-width="2.25" />
+                    </button>
+                    <button type="button" :class="$style.detailMin">
+                      <line-icon :class="$style.detailControlBtnIcon" :icon="Minus" :size="13" :stroke-width="2.2" />
+                    </button>
+                    <button type="button" :class="$style.detailMode">
+                      <line-icon :class="$style.detailControlBtnIcon" :icon="Square" :size="12" :stroke-width="2.1" />
+                    </button>
+                    <button type="button" :class="$style.detailClose">
+                      <line-icon :class="$style.detailControlBtnIcon" :icon="X" :size="13" :stroke-width="2.2" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div :class="[$style.groupContent, $style.controlColorGroup]">
+                <div :class="$style.item">
+                  <div ref="detail_btn_font_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__btn_icon') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="detail_close_btn_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__close_btn') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="detail_min_btn_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__min_btn') }}</div>
+                </div>
+                <div :class="$style.item">
+                  <div ref="detail_hide_btn_color_ref" :class="$style.color" />
+                  <div :class="$style.label">{{ $t('theme_edit_modal__hide_btn') }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -131,7 +175,7 @@ id="theme_edit_modal__preview" v-model="preview" :class="$style.checkbox"
 </template>
 
 <script>
-import { Trash2, RectangleHorizontal, Minus, X, ChevronRight } from 'lucide-vue-next'
+import { Trash2, Minus, X, ChevronRight, ChevronDown, Square } from 'lucide-vue-next'
 
 import { joinPath, extname, copyFile, checkPath, createDir, removeFile, moveFile, basename } from '@common/utils/nodejs'
 import { nextTick, ref, watch } from '@common/utils/vueTools'
@@ -155,6 +199,17 @@ import { appSetting, updateSetting } from '@renderer/store/setting'
 import { removeTheme, saveTheme, showSelectDialog } from '@renderer/utils/ipc'
 import { dialog } from '@renderer/plugins/Dialog'
 import { themeInfo } from '@renderer/store'
+
+const defaultThemeButtonExtInfo = {
+  '--color-btn-font': 'rgba(255, 255, 255, 0.96)',
+  '--color-btn-hide': 'rgba(255, 255, 255, 0.18)',
+  '--color-btn-min': 'rgba(255, 255, 255, 0.18)',
+  '--color-btn-close': 'rgba(255, 255, 255, 0.18)',
+  '--color-detail-btn-font': 'rgba(98, 104, 118, 0.92)',
+  '--color-detail-btn-hide': 'rgba(255, 255, 255, 0.98)',
+  '--color-detail-btn-min': 'rgba(255, 255, 255, 0.98)',
+  '--color-detail-btn-close': 'rgba(255, 255, 255, 0.98)',
+}
 
 
 export default {
@@ -204,6 +259,10 @@ export default {
     // '--color-btn-hide': string
     // '--color-btn-min': string
     // '--color-btn-close': string
+    // '--color-detail-btn-font': string
+    // '--color-detail-btn-hide': string
+    // '--color-detail-btn-min': string
+    // '--color-detail-btn-close': string
 
     // // 徽章颜色
     // '--color-badge-primary': string
@@ -220,6 +279,36 @@ export default {
     const { close_btn_color_ref, initCloseBtnColor, destroyCloseBtnColor, setCloseBtnColor } = useCloseBtnColor()
     const { min_btn_color_ref, initMinBtnColor, destroyMinBtnColor, setMinBtnColor } = useMinBtnColor()
     const { hide_btn_color_ref, initHideBtnColor, destroyHideBtnColor, setHideBtnColor } = useHideBtnColor()
+    const {
+      font_color_ref: control_btn_font_color_ref,
+      initFontColor: initControlBtnFontColor,
+      destroyFontColor: destroyControlBtnFontColor,
+      setFontColor: setControlBtnFontColor,
+    } = useFontColor()
+    const {
+      font_color_ref: detail_btn_font_color_ref,
+      initFontColor: initDetailBtnFontColor,
+      destroyFontColor: destroyDetailBtnFontColor,
+      setFontColor: setDetailBtnFontColor,
+    } = useFontColor()
+    const {
+      close_btn_color_ref: detail_close_btn_color_ref,
+      initCloseBtnColor: initDetailCloseBtnColor,
+      destroyCloseBtnColor: destroyDetailCloseBtnColor,
+      setCloseBtnColor: setDetailCloseBtnColor,
+    } = useCloseBtnColor()
+    const {
+      min_btn_color_ref: detail_min_btn_color_ref,
+      initMinBtnColor: initDetailMinBtnColor,
+      destroyMinBtnColor: destroyDetailMinBtnColor,
+      setMinBtnColor: setDetailMinBtnColor,
+    } = useMinBtnColor()
+    const {
+      hide_btn_color_ref: detail_hide_btn_color_ref,
+      initHideBtnColor: initDetailHideBtnColor,
+      destroyHideBtnColor: destroyDetailHideBtnColor,
+      setHideBtnColor: setDetailHideBtnColor,
+    } = useHideBtnColor()
 
     let appBgColorOrigin
     let appBgColor
@@ -239,6 +328,16 @@ export default {
     let minBtnColor
     let hideBtnColorOrigin
     let hideBtnColor
+    let controlBtnFontColorOrigin
+    let controlBtnFontColor
+    let detailBtnFontColorOrigin
+    let detailBtnFontColor
+    let detailCloseBtnColorOrigin
+    let detailCloseBtnColor
+    let detailMinBtnColorOrigin
+    let detailMinBtnColor
+    let detailHideBtnColorOrigin
+    let detailHideBtnColor
 
     const applyPrimaryColor = (color, fontColor, isDark, isDarkFont) => {
       theme.config.themeColors = createThemeColors(color, fontColor, isDark, isDarkFont)
@@ -248,15 +347,24 @@ export default {
       if (theme.config.extInfo['--color-badge-primary'].startsWith('var')) setBadgePrimaryColor(getColor(badgePrimaryColorOrigin, theme))
       if (theme.config.extInfo['--color-badge-secondary'].startsWith('var')) setBadgeSecondaryColor(getColor(badgeSecondaryColorOrigin, theme))
       if (theme.config.extInfo['--color-badge-tertiary'].startsWith('var')) setBadgeTertiaryColor(getColor(badgeTertiaryColorOrigin, theme))
+      if (theme.config.extInfo['--color-btn-font'].startsWith('var')) setControlBtnFontColor(getColor(controlBtnFontColorOrigin, theme))
       if (theme.config.extInfo['--color-btn-close'].startsWith('var')) setCloseBtnColor(getColor(closeBtnColorOrigin, theme))
       if (theme.config.extInfo['--color-btn-min'].startsWith('var')) setMinBtnColor(getColor(minBtnColorOrigin, theme))
       if (theme.config.extInfo['--color-btn-hide'].startsWith('var')) setHideBtnColor(getColor(hideBtnColorOrigin, theme))
+      if (theme.config.extInfo['--color-detail-btn-font'].startsWith('var')) setDetailBtnFontColor(getColor(detailBtnFontColorOrigin, theme))
+      if (theme.config.extInfo['--color-detail-btn-close'].startsWith('var')) setDetailCloseBtnColor(getColor(detailCloseBtnColorOrigin, theme))
+      if (theme.config.extInfo['--color-detail-btn-min'].startsWith('var')) setDetailMinBtnColor(getColor(detailMinBtnColorOrigin, theme))
+      if (theme.config.extInfo['--color-detail-btn-hide'].startsWith('var')) setDetailHideBtnColor(getColor(detailHideBtnColorOrigin, theme))
 
       createPreview()
     }
 
     const initColors = (_theme) => {
       theme = _theme
+      theme.config.extInfo = {
+        ...defaultThemeButtonExtInfo,
+        ...theme.config.extInfo,
+      }
       // console.log(theme)
       themeName.value = theme.name
       isDark.value = theme.isDark
@@ -285,12 +393,22 @@ export default {
       badgeSecondaryColor = getColor(badgeSecondaryColorOrigin, theme)
       badgeTertiaryColorOrigin = theme.config.extInfo['--color-badge-tertiary']
       badgeTertiaryColor = getColor(badgeTertiaryColorOrigin, theme)
+      controlBtnFontColorOrigin = theme.config.extInfo['--color-btn-font']
+      controlBtnFontColor = getColor(controlBtnFontColorOrigin, theme)
       closeBtnColorOrigin = theme.config.extInfo['--color-btn-close']
       closeBtnColor = getColor(closeBtnColorOrigin, theme)
       minBtnColorOrigin = theme.config.extInfo['--color-btn-min']
       minBtnColor = getColor(minBtnColorOrigin, theme)
       hideBtnColorOrigin = theme.config.extInfo['--color-btn-hide']
       hideBtnColor = getColor(hideBtnColorOrigin, theme)
+      detailBtnFontColorOrigin = theme.config.extInfo['--color-detail-btn-font']
+      detailBtnFontColor = getColor(detailBtnFontColorOrigin, theme)
+      detailCloseBtnColorOrigin = theme.config.extInfo['--color-detail-btn-close']
+      detailCloseBtnColor = getColor(detailCloseBtnColorOrigin, theme)
+      detailMinBtnColorOrigin = theme.config.extInfo['--color-detail-btn-min']
+      detailMinBtnColor = getColor(detailMinBtnColorOrigin, theme)
+      detailHideBtnColorOrigin = theme.config.extInfo['--color-detail-btn-hide']
+      detailHideBtnColor = getColor(detailHideBtnColorOrigin, theme)
 
       initMainColor(theme.config.themeColors['--color-primary'], (color) => {
         applyPrimaryColor(color, theme.config.themeColors['--color-1000'], theme.isDark, theme.isDarkFont)
@@ -323,6 +441,10 @@ export default {
         theme.config.extInfo['--color-badge-tertiary'] = color == badgeTertiaryColor ? badgeTertiaryColorOrigin : color
         createPreview()
       }, () => { setBadgeTertiaryColor(getColor(badgeTertiaryColorOrigin, theme)) })
+      initControlBtnFontColor(controlBtnFontColor, (color) => {
+        theme.config.extInfo['--color-btn-font'] = color == controlBtnFontColor ? controlBtnFontColorOrigin : color
+        createPreview()
+      })
       initCloseBtnColor(closeBtnColor, (color) => {
         theme.config.extInfo['--color-btn-close'] = color == closeBtnColor ? closeBtnColorOrigin : color
         createPreview()
@@ -335,6 +457,22 @@ export default {
         theme.config.extInfo['--color-btn-hide'] = color == hideBtnColor ? hideBtnColorOrigin : color
         createPreview()
       }, () => { setHideBtnColor(getColor(hideBtnColorOrigin, theme)) })
+      initDetailBtnFontColor(detailBtnFontColor, (color) => {
+        theme.config.extInfo['--color-detail-btn-font'] = color == detailBtnFontColor ? detailBtnFontColorOrigin : color
+        createPreview()
+      })
+      initDetailCloseBtnColor(detailCloseBtnColor, (color) => {
+        theme.config.extInfo['--color-detail-btn-close'] = color == detailCloseBtnColor ? detailCloseBtnColorOrigin : color
+        createPreview()
+      }, () => { setDetailCloseBtnColor(getColor(detailCloseBtnColorOrigin, theme)) })
+      initDetailMinBtnColor(detailMinBtnColor, (color) => {
+        theme.config.extInfo['--color-detail-btn-min'] = color == detailMinBtnColor ? detailMinBtnColorOrigin : color
+        createPreview()
+      }, () => { setDetailMinBtnColor(getColor(detailMinBtnColorOrigin, theme)) })
+      initDetailHideBtnColor(detailHideBtnColor, (color) => {
+        theme.config.extInfo['--color-detail-btn-hide'] = color == detailHideBtnColor ? detailHideBtnColorOrigin : color
+        createPreview()
+      }, () => { setDetailHideBtnColor(getColor(detailHideBtnColorOrigin, theme)) })
 
       createPreview()
     }
@@ -347,9 +485,14 @@ export default {
       destroyBadgePrimaryColor()
       destroyBadgeSecondaryColor()
       destroyBadgeTertiaryColor()
+      destroyControlBtnFontColor()
       destroyCloseBtnColor()
       destroyMinBtnColor()
       destroyHideBtnColor()
+      destroyDetailBtnFontColor()
+      destroyDetailCloseBtnColor()
+      destroyDetailMinBtnColor()
+      destroyDetailHideBtnColor()
     }
 
     watch(() => props.modelValue, (visible) => {
@@ -541,14 +684,20 @@ export default {
       badge_primary_color_ref,
       badge_secondary_color_ref,
       badge_tertiary_color_ref,
+      control_btn_font_color_ref,
       close_btn_color_ref,
       min_btn_color_ref,
       hide_btn_color_ref,
+      detail_btn_font_color_ref,
+      detail_close_btn_color_ref,
+      detail_min_btn_color_ref,
+      detail_hide_btn_color_ref,
       Trash2,
-      RectangleHorizontal,
       Minus,
       X,
       ChevronRight,
+      ChevronDown,
+      Square,
     }
   },
 }
@@ -558,41 +707,67 @@ export default {
 @import '@renderer/assets/styles/layout.less';
 
 .main {
+  flex: 1;
   width: min(92vw, 840px);
   min-width: 320px;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  display: flex;
+  flex-flow: column nowrap;
+  overflow: hidden;
+  color: var(--ui-text-primary);
+}
+
+.body {
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-flow: column nowrap;
-  color: var(--ui-text-primary);
+  gap: 16px;
+  padding: 0 28px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
 
-  h2 {
-    flex: none;
-    padding: 0 28px 18px;
-    font-size: var(--ui-font-title);
-    font-weight: 700;
-    line-height: 1.3;
-    text-align: left;
+  &::-webkit-scrollbar {
+    width: 8px;
   }
 
-  h3 {
-    margin: 0;
-    font-size: var(--ui-font-section);
-    font-weight: 600;
-    color: var(--ui-text-secondary);
-    line-height: 1.35;
+  &::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--color-primary-alpha-800);
+    background-clip: content-box;
   }
 }
 
 .content {
-  flex: auto;
-  padding: 0 28px 24px;
+  flex: none;
   font-size: var(--ui-font-body);
   gap: 16px;
   display: flex;
   flex-flow: column nowrap;
 }
 
+.body h2 {
+  flex: none;
+  padding: 0;
+  font-size: var(--ui-font-title);
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.body h3 {
+  margin: 0;
+  font-size: var(--ui-font-section);
+  font-weight: 600;
+  color: var(--ui-text-secondary);
+  line-height: 1.35;
+}
+
 .group {
+  align-self: start;
   border: 1px solid rgba(228, 228, 232, 0.98);
   border-radius: @radius-card;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 247, 249, 0.98));
@@ -612,10 +787,44 @@ export default {
   }
 }
 
+.toolbarTitle {
+  margin: 18px 20px 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.previewSurface {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: none;
+}
+
+.previewSurfaceToolbar {
+  padding: 8px 10px;
+  background: linear-gradient(180deg, var(--color-primary-alpha-100), var(--color-primary-dark-100-alpha-100));
+  border-radius: 16px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.previewSurfaceDetail {
+  background: var(--color-main-background);
+}
+
 .row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
+  align-items: start;
 }
 
 .groupContent {
@@ -623,6 +832,17 @@ export default {
   flex-flow: row wrap;
   gap: 14px;
   padding: 16px 20px 20px;
+}
+
+.controlColorGroup {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 10px;
+  justify-items: center;
+
+  .item {
+    width: 72px;
+  }
 }
 
 .item {
@@ -742,24 +962,15 @@ export default {
   display: flex;
   -webkit-app-region: no-drag;
   align-items: center;
-  margin-left: auto;
+  margin-left: 0;
   gap: 10px;
-  padding: 4px;
-  flex-direction: row-reverse;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(246, 247, 249, 0.82));
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow:
-    0 8px 18px rgba(15, 23, 42, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.74);
-  transition: opacity @transition-normal, box-shadow @transition-fast;
-  opacity: .92;
-
-  &:hover {
-    box-shadow:
-      0 10px 20px rgba(15, 23, 42, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  }
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: opacity @transition-normal;
+  opacity: .98;
 
   button {
     display: flex;
@@ -775,7 +986,7 @@ export default {
     width: 38px;
     height: 34px;
     border-radius: 12px;
-    color: var(--color-font-label);
+    color: var(--color-btn-font);
     box-shadow:
       0 2px 8px rgba(15, 23, 42, 0.05),
       inset 0 1px 0 rgba(255, 255, 255, 0.72);
@@ -784,37 +995,101 @@ export default {
       margin-right: 0;
     }
 
-    &.hide {
-      background-color: var(--color-btn-hide);
-    }
-
-    &.min,
-    &.fullscreenExit {
+    &.min {
       background-color: var(--color-btn-min);
     }
-
-    // &.max {
-    //   background-color: var(--color-btn-max);
-    // }
+    &.max {
+      background-color: var(--color-btn-hide);
+    }
     &.close {
       background-color: var(--color-btn-close);
-      color: var(--color-btn-font);
     }
 
     &:hover {
-      color: var(--ui-text-accent);
-      background-color: var(--color-primary-light-300-alpha-800);
+      color: var(--color-btn-font);
+      filter: brightness(1.08);
     }
 
     &:active {
-      color: var(--ui-text-accent);
-      background-color: var(--color-primary-alpha-900);
+      color: var(--color-btn-font);
+      filter: brightness(0.95);
     }
   }
 }
 
 .controlBtnIcon {
-  opacity: .8;
+  opacity: .95;
+  transition: opacity 0.15s ease;
+  width: 14px;
+  height: 14px;
+}
+
+.detailControlBtn {
+  display: flex;
+  -webkit-app-region: no-drag;
+  align-items: center;
+  margin-left: 0;
+  gap: 10px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+
+  button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 38px;
+    height: 34px;
+    padding: 0;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    border-radius: 12px;
+    color: var(--color-detail-btn-font);
+    box-shadow:
+      0 3px 10px rgba(15, 23, 42, 0.07),
+      inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    transition: @transition-fast !important;
+    transition-property: transform, filter, box-shadow, color !important;
+    background-image: none;
+
+    &.detailHide {
+      background-color: var(--color-detail-btn-hide);
+    }
+
+    &.detailMin,
+    &.detailMode {
+      background-color: var(--color-detail-btn-min);
+    }
+
+    &.detailClose {
+      background-color: var(--color-detail-btn-close);
+    }
+
+    &:hover {
+      color: var(--color-detail-btn-font);
+      transform: translateY(-1px);
+      filter: brightness(1.02);
+      box-shadow:
+        0 6px 14px rgba(15, 23, 42, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    }
+
+    &:active {
+      color: var(--color-detail-btn-font);
+      transform: scale(0.98);
+      filter: brightness(0.98);
+      box-shadow:
+        0 2px 8px rgba(15, 23, 42, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    }
+  }
+}
+
+.detailControlBtnIcon {
+  opacity: .86;
   transition: opacity 0.15s ease;
   width: 14px;
   height: 14px;

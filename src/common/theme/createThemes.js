@@ -4,6 +4,20 @@ const fs = require('fs')
 const path = require('path')
 const { createThemeColors } = require('./utils')
 
+const defaultWindowControlExtInfo = {
+  '--color-btn-font': 'rgba(255, 255, 255, 0.96)',
+  '--color-btn-hide': 'rgba(255, 255, 255, 0.18)',
+  '--color-btn-min': 'rgba(255, 255, 255, 0.18)',
+  '--color-btn-close': 'rgba(255, 255, 255, 0.18)',
+}
+
+const defaultDetailControlExtInfo = {
+  '--color-detail-btn-font': 'rgba(98, 104, 118, 0.92)',
+  '--color-detail-btn-hide': 'rgba(255, 255, 255, 0.98)',
+  '--color-detail-btn-min': 'rgba(255, 255, 255, 0.98)',
+  '--color-detail-btn-close': 'rgba(255, 255, 255, 0.98)',
+}
+
 const defaultThemes = [
   {
     id: 'netease',
@@ -15,7 +29,7 @@ const defaultThemes = [
       font: 'rgb(33, 33, 33)',
       '--color-app-background': 'var(--color-primary-dark-600-alpha-800)',
       '--color-main-background': 'rgba(255, 255, 255, 0.94)',
-      '--color-nav-font': 'var(--color-primary-light-300)',
+      '--color-nav-font': 'var(--color-1000)',
       '--background-image': 'none',
       '--background-image-position': 'center',
       '--background-image-size': 'cover',
@@ -399,10 +413,13 @@ const themes = defaultThemes.map(({ config: { primary, font, ...extInfo }, ...th
     isCustom: false,
     config: {
       themeColors: createThemeColors(primary, font, themeInfo.isDark),
-      extInfo,
+      extInfo: {
+        ...extInfo,
+        ...defaultWindowControlExtInfo,
+        ...defaultDetailControlExtInfo,
+      },
     },
   }
 })
 
 fs.writeFileSync(path.join(__dirname, 'index.json'), JSON.stringify(themes, null, 2))
-

@@ -4,6 +4,8 @@ const chalk = require('chalk')
 const del = require('del')
 const webpack = require('webpack')
 const Spinnies = require('spinnies')
+const fs = require('fs')
+const path = require('path')
 
 const mainConfig = './main/webpack.config.prod'
 const rendererConfig = './renderer/webpack.config.prod'
@@ -34,6 +36,12 @@ function build() {
   //   process.exit()
   // })
   function handleSuccess() {
+    const packageInfo = require('../package.json')
+    const buildMetaPath = path.join(__dirname, '../dist/.build-meta.json')
+    fs.writeFileSync(buildMetaPath, JSON.stringify({
+      version: packageInfo.version,
+      builtAt: new Date().toISOString(),
+    }, null, 2))
     process.stdout.write('\x1B[2J\x1B[0f')
     console.log(`\n\n${results}`)
     console.log(`${okayLog}take it away ${chalk.yellow('`electron-builder`')}\n`)

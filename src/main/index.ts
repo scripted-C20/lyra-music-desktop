@@ -15,7 +15,7 @@ import registerModules from '@main/modules'
 
 // 初始化应用
 const init = () => {
-  console.log('init')
+  if (process.env.NODE_ENV === 'development') console.log('init')
   void initAppSetting().then(() => {
     registerModules()
     global.lx.event_app.app_inited()
